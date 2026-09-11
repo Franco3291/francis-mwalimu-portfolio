@@ -17,6 +17,10 @@
     return div.innerHTML;
   }
 
+  function isConfiguredLink(url) {
+    return Boolean(url) && !/(example\.com|your-|XXXX|000 000|placeholder)/i.test(url);
+  }
+
   function formatDate(dateStr) {
     if (!dateStr) return '';
     const date = new Date(dateStr);
@@ -227,7 +231,7 @@
             ${project.technologies.length > 5 ? `<span class="tech-badge">+${project.technologies.length - 5}</span>` : ''}
           </div>
           <div class="project-card-actions">
-            <a href="project-${project.id}.html" class="btn btn-secondary btn-sm">Case Study</a>
+            <a href="project.html?id=${encodeURIComponent(project.id)}" class="btn btn-secondary btn-sm">Case Study</a>
             ${project.githubUrl ? `<a href="${escapeHtml(project.githubUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">GitHub</a>` : ''}
             ${project.liveUrl ? `<a href="${escapeHtml(project.liveUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-primary btn-sm">Live Demo</a>` : ''}
           </div>
@@ -305,7 +309,7 @@
     const container = $('#live-projects-container');
     if (!container) return;
 
-    const liveProjects = PORTFOLIO_DATA.liveProjects;
+    const liveProjects = PORTFOLIO_DATA.liveProjects.filter(project => isConfiguredLink(project.url));
 
     if (!liveProjects.length) {
       container.innerHTML = `
@@ -367,8 +371,8 @@
         ${cert.credentialId ? `<div class="cert-credential">ID: ${escapeHtml(cert.credentialId)}</div>` : ''}
         <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">${escapeHtml(cert.description)}</p>
         <div class="cert-card-actions">
-          ${cert.verificationUrl ? `<a href="${escapeHtml(cert.verificationUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Verify</a>` : ''}
-          ${cert.certificateUrl ? `<a href="${escapeHtml(cert.certificateUrl)}" download class="btn btn-outline btn-sm">Download</a>` : ''}
+          ${isConfiguredLink(cert.verificationUrl) ? `<a href="${escapeHtml(cert.verificationUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Verify</a>` : ''}
+          ${isConfiguredLink(cert.certificateUrl) ? `<a href="${escapeHtml(cert.certificateUrl)}" download class="btn btn-outline btn-sm">Download</a>` : ''}
         </div>
       </article>
     `).join('');
@@ -599,7 +603,7 @@
               <div class="project-card-tech" style="margin-bottom: 12px;">
                 ${post.tags.slice(0, 3).map(tag => `<span class="tech-badge">${escapeHtml(tag)}</span>`).join('')}
               </div>
-              <a href="blog-${post.id}.html" class="read-more">Read Article →</a>
+              <a href="article.html?id=${encodeURIComponent(post.id)}" class="read-more">Read Article →</a>
             </div>
           </article>
         `).join('')}
@@ -617,6 +621,42 @@
       'Mobile Development': '📱'
     };
     return icons[category] || '📝';
+  }
+
+  /* ==================== DETAIL VIEWS ==================== */
+  function renderProjectDetail() {
+    const container = $('#project-detail-container');
+    if (!container) return;
+    const id = new URLSearchParams(window.location.search).get('id');
+    const project = PORTFOLIO_DATA.projects.find(item => item.id === id);
+
+    if (!project) {
+      container.innerHTML = '<section class="section"><div class="container"><div class="empty-state"><h1>Project not found</h1><p>The requested case study is not available.</p><a class="btn btn-primary" href="projects.html">Back to projects</a></div></div></section>';
+      return;
+    }
+
+    const list = items => items && items.length ? `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : '<p class="card-text">Details will be added as this project is documented further.</p>';
+    container.innerHTML = `
+      <section class="case-study-header"><div class="container"><div class="project-card-category">${escapeHtml(project.category)}</div><h1>${escapeHtml(project.title)}</h1><p>${escapeHtml(project.shortDescription)}</p></div></section>
+      <nav class="breadcrumbs" aria-label="Breadcrumb"><div class="container"><ol><li><a href="index.html">Home</a></li><li><a href="projects.html">Projects</a></li><li class="current">${escapeHtml(project.title)}</li></ol></div></nav>
+      <section class="section"><div class="container case-study-content">
+        <div class="card"><h2>Overview</h2><p>${escapeHtml(project.description)}</p><h2>Problem</h2><p>${escapeHtml(project.problem)}</p><h2>Objectives</h2>${list(project.objectives)}<h2>Approach & Role</h2><p>${escapeHtml(project.role)}</p></div>
+        <div class="card"><h2>Technologies</h2><div class="project-card-tech">${project.technologiesUsed.map(item => `<span class="tech-badge">${escapeHtml(item)}</span>`).join('')}</div><h2>Major Features</h2>${list(project.features)}</div>
+        <div class="card"><h2>Challenges</h2>${list(project.challenges)}<h2>Solutions</h2>${list(project.solutions)}<h2>Results</h2><p>${escapeHtml(project.results)}</p></div>
+        <div class="card"><h2>Project Links</h2><div class="project-card-actions">${project.githubUrl ? `<a class="btn btn-outline" href="${escapeHtml(project.githubUrl)}" target="_blank" rel="noopener noreferrer">GitHub Repository</a>` : ''}${project.liveUrl ? `<a class="btn btn-primary" href="${escapeHtml(project.liveUrl)}" target="_blank" rel="noopener noreferrer">Live Demonstration</a>` : ''}${project.documentationUrl ? `<a class="btn btn-secondary" href="${escapeHtml(project.documentationUrl)}" target="_blank" rel="noopener noreferrer">Documentation</a>` : ''}</div></div>
+      </div></section>`;
+  }
+
+  function renderArticleDetail() {
+    const container = $('#article-detail-container');
+    if (!container) return;
+    const id = new URLSearchParams(window.location.search).get('id');
+    const post = PORTFOLIO_DATA.blogPosts.find(item => item.id === id);
+    if (!post) {
+      container.innerHTML = '<section class="section"><div class="container"><div class="empty-state"><h1>Article not found</h1><p>The requested article is not available.</p><a class="btn btn-primary" href="blog.html">Back to articles</a></div></div></section>';
+      return;
+    }
+    container.innerHTML = `<section class="case-study-header"><div class="container"><div class="project-card-category">${escapeHtml(post.category)}</div><h1>${escapeHtml(post.title)}</h1><p>${formatDate(post.date)} · ${escapeHtml(post.readTime)}</p></div></section><section class="section"><article class="container article-content"><div class="card"><p>${escapeHtml(post.excerpt)}</p><h2>Article notes</h2><p>${post.content === 'placeholder' ? 'This article is a planned knowledge-sharing piece. Replace this placeholder with the approved article body before publishing.' : escapeHtml(post.content)}</p><div class="project-card-tech">${post.tags.map(tag => `<span class="tech-badge">${escapeHtml(tag)}</span>`).join('')}</div><a class="btn btn-secondary" href="blog.html">Back to articles</a></div></article></section>`;
   }
 
   /* ==================== RENDER: NETWORKING PORTFOLIO ==================== */
@@ -643,8 +683,8 @@
               </div>
               <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Year: ${escapeHtml(project.year)}</div>
               <div class="lab-actions">
-                ${project.fileUrl ? `<a href="${escapeHtml(project.fileUrl)}" download class="btn btn-secondary btn-sm">Download File</a>` : ''}
-                ${project.documentationUrl ? `<a href="${escapeHtml(project.documentationUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">Documentation</a>` : ''}
+                ${isConfiguredLink(project.fileUrl) ? `<a href="${escapeHtml(project.fileUrl)}" download class="btn btn-secondary btn-sm">Download File</a>` : ''}
+                ${isConfiguredLink(project.documentationUrl) ? `<a href="${escapeHtml(project.documentationUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-outline btn-sm">Documentation</a>` : ''}
               </div>
             </div>
           </div>
@@ -679,7 +719,7 @@
               </div>
               <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 12px;">Year: ${escapeHtml(project.year)}</div>
               <div class="lab-actions">
-                ${project.writeupUrl ? `<a href="${escapeHtml(project.writeupUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Read Write-up</a>` : ''}
+                ${isConfiguredLink(project.writeupUrl) ? `<a href="${escapeHtml(project.writeupUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Read Write-up</a>` : ''}
               </div>
             </div>
           </div>
@@ -732,7 +772,7 @@
           <p>${escapeHtml(resource.description)}</p>
           <span class="tech-badge" style="display: inline-block; margin-top: 4px;">${escapeHtml(resource.type)}</span>
         </div>
-        <a href="${escapeHtml(resource.url)}" download class="resource-download">Download ↓</a>
+        ${isConfiguredLink(resource.url) ? `<a href="${escapeHtml(resource.url)}" download class="resource-download">Download ↓</a>` : '<span class="tech-badge">File pending</span>'}
       </div>
     `).join('');
 
@@ -916,21 +956,36 @@
 
       if (!isValid) return;
 
-      // Simulate form submission (replace with actual backend integration)
       const submitBtn = form.querySelector('button[type="submit"]');
       const originalText = submitBtn.innerHTML;
       submitBtn.innerHTML = '<span class="loading-spinner"></span> Sending...';
       submitBtn.disabled = true;
 
-      setTimeout(() => {
+      const endpoint = PORTFOLIO_DATA.personal.contactFormEndpoint;
+      if (!endpoint) {
+        const body = `Name: ${name.value.trim()}\nEmail: ${email.value.trim()}\n\n${message.value.trim()}`;
+        window.location.href = `mailto:${PORTFOLIO_DATA.personal.email}?subject=${encodeURIComponent(subject.value.trim())}&body=${encodeURIComponent(body)}`;
         submitBtn.innerHTML = originalText;
         submitBtn.disabled = false;
-        form.reset();
-        if (successMsg) {
-          successMsg.classList.add('show');
-          setTimeout(() => successMsg.classList.remove('show'), 5000);
-        }
-      }, 1500);
+        return;
+      }
+
+      fetch(endpoint, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } })
+        .then(response => {
+          if (!response.ok) throw new Error('Message submission failed');
+          form.reset();
+          if (successMsg) successMsg.classList.add('show');
+        })
+        .catch(() => {
+          if (successMsg) {
+            successMsg.textContent = 'Unable to send the message right now. Please use the email link instead.';
+            successMsg.classList.add('show');
+          }
+        })
+        .finally(() => {
+          submitBtn.innerHTML = originalText;
+          submitBtn.disabled = false;
+        });
     });
 
     // Clear invalid state on input
@@ -970,15 +1025,10 @@
       submitBtn.innerHTML = '<span class="loading-spinner"></span> Submitting...';
       submitBtn.disabled = true;
 
-      setTimeout(() => {
-        submitBtn.innerHTML = originalText;
-        submitBtn.disabled = false;
-        form.reset();
-        if (successMsg) {
-          successMsg.classList.add('show');
-          setTimeout(() => successMsg.classList.remove('show'), 5000);
-        }
-      }, 1500);
+      const body = `Feedback from ${form.querySelector('#feedback-name')?.value.trim() || 'a visitor'}:\n\n${feedback.value.trim()}`;
+      window.location.href = `mailto:${PORTFOLIO_DATA.personal.email}?subject=${encodeURIComponent('Portfolio feedback')}&body=${encodeURIComponent(body)}`;
+      submitBtn.innerHTML = originalText;
+      submitBtn.disabled = false;
     });
 
     $$('.form-control', form).forEach(input => {
@@ -1030,6 +1080,8 @@
               <li><a href="cybersecurity.html">Cybersecurity</a></li>
               <li><a href="experience.html">Experience</a></li>
               <li><a href="blog.html">Blog</a></li>
+              <li><a href="github.html">GitHub</a></li>
+              <li><a href="resources.html">Resources</a></li>
               <li><a href="contact.html">Contact</a></li>
             </ul>
           </div>
@@ -1092,6 +1144,8 @@
             <li><a href="cybersecurity.html" class="nav-link">Security</a></li>
             <li><a href="experience.html" class="nav-link">Experience</a></li>
             <li><a href="blog.html" class="nav-link">Blog</a></li>
+            <li><a href="github.html" class="nav-link">GitHub</a></li>
+            <li><a href="resources.html" class="nav-link">Resources</a></li>
             <li><a href="contact.html" class="nav-link">Contact</a></li>
           </ul>
         </nav>
@@ -1178,6 +1232,12 @@
         break;
       case 'blog':
         renderBlogPosts();
+        break;
+      case 'project-detail':
+        renderProjectDetail();
+        break;
+      case 'article-detail':
+        renderArticleDetail();
         break;
       case 'github':
         renderGitHubRepos();

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+Disallow: /docs/
+Sitemap: https://francis-mwalimu-portfolio.example.com/sitemap.xml

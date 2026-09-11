@@ -22,6 +22,7 @@ const PORTFOLIO_DATA = {
     whatsapp: "https://wa.me/254700000000", // TODO: Replace with real WhatsApp number
     profileImage: "assets/images/profile.jpg", // TODO: Add real profile photo
     cvUrl: "assets/docs/Francis_Mwalimu_CV.pdf", // TODO: Add real CV file
+    contactFormEndpoint: "", // TODO: Set a HTTPS form endpoint before deployment
     bio: "I am a passionate IT professional with hands-on experience in networking, cybersecurity, software development, web development, mobile development, databases, system administration and technical support. I enjoy solving real-world problems through technology and continuously expanding my skills across the IT landscape.",
     longBio: "I am an IT professional dedicated to building practical technology solutions that solve real problems. My journey spans networking, cybersecurity, software and web development, mobile applications, database design, system administration and technical support. I believe in continuous learning and applying knowledge to create secure, efficient and user-friendly systems. Whether configuring network infrastructure, developing applications, or securing systems, I approach every challenge with curiosity, discipline and a commitment to quality.",
     careerObjective: "To leverage my technical skills in networking, cybersecurity and software development to build secure, innovative and reliable IT solutions that add value to organizations and communities, while growing as a professional in a dynamic technology environment.",
