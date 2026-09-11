@@ -4,7 +4,7 @@
    Replace placeholder values with real data before deployment.
    ========================================================================== */
 
-const PORTFOLIO_DATA = {
+var PORTFOLIO_DATA = {
   /* ==================== PERSONAL INFO ==================== */
   personal: {
     name: "Francis Mwalimu",

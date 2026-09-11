@@ -1,4 +1,6 @@
 User-agent: *
 Allow: /
 Disallow: /docs/
+Disallow: /admin.html
+Disallow: /api/
 Sitemap: https://francis-mwalimu-portfolio.example.com/sitemap.xml

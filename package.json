@@ -1,0 +1,17 @@
+{
+  "name": "francis-mwalimu-portfolio",
+  "version": "2.0.0",
+  "description": "Portfolio website for Francis Mwalimu with a Node.js admin panel and JSON content API. No runtime dependencies.",
+  "private": true,
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "init-data": "node server/scripts/init-data.js",
+    "set-password": "node server/scripts/set-password.js",
+    "change-password": "node server/scripts/set-password.js"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "license": "UNLICENSED"
+}

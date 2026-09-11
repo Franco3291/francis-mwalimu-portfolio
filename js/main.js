@@ -1260,10 +1260,38 @@
     }
   }
 
-  // Wait for DOM and data to be ready
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
+  /* ==================== REMOTE CONTENT LOADER ==================== */
+  // When the site is served by the Node backend, fetch the live, admin-managed
+  // content from the JSON database and override the bundled default in data.js.
+  // On a static host (no backend) this request simply fails and the bundled
+  // PORTFOLIO_DATA is used unchanged.
+  async function loadRemoteContent() {
+    try {
+      const res = await fetch('/api/content', {
+        headers: { 'Accept': 'application/json' },
+        credentials: 'same-origin'
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      if (data && typeof data === 'object' && data.personal) {
+        // data.js declares PORTFOLIO_DATA with `var`, so it is a live global
+        // property; reassigning window.PORTFOLIO_DATA updates every read.
+        window.PORTFOLIO_DATA = data;
+        return true;
+      }
+    } catch (e) { /* backend unavailable (e.g. static hosting) */ }
+    return false;
+  }
+
+  // Wait for DOM and (optionally) remote data before rendering.
+  async function startApp() {
+    await loadRemoteContent();
     init();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startApp);
+  } else {
+    startApp();
   }
 })();

@@ -2,7 +2,7 @@
 
 A modern, static, dependency‑free portfolio website for **Francis Mwalimu**, an IT professional specializing in **networking, cybersecurity, software development, web & mobile development, databases, system administration, and technical support**.
 
-Built with plain HTML, CSS, and JavaScript — no frameworks, no build step, no package manager. All content is centralized in a single data file, so the entire site is easy to preview, host, and maintain.
+Built with plain HTML, CSS, and JavaScript — no frameworks, no build step, no package manager. All content is centralized in a single data file (and can also be managed live through the included **Node.js admin panel**), so the entire site is easy to preview, host, and maintain.
 
 > **Status:** Template with placeholder content. Review the [Before deployment](#-before-deployment-checklist) section before publishing.
 
@@ -20,6 +20,7 @@ Built with plain HTML, CSS, and JavaScript — no frameworks, no build step, no 
 - **SEO & social ready** — per‑page meta tags, Open Graph, Twitter cards, JSON‑LD structured data, `sitemap.xml`, and `robots.txt`.
 - **Accessibility** — semantic markup, ARIA labels, keyboard navigation, visible focus states, and support for `prefers-reduced-motion`.
 - **GitHub integration** — a dedicated page that showcases selected repositories and open‑source work.
+- **Admin panel** — a password‑protected Node.js backend (`/admin.html`) with a form & JSON editor for every content section, backups, reset, and one-click export of the static `data.js`.
 
 ---
 
@@ -32,6 +33,7 @@ Built with plain HTML, CSS, and JavaScript — no frameworks, no build step, no 
 | Scripting| Vanilla JavaScript (ES6+)               |
 | Fonts    | Google Fonts — Inter & JetBrains Mono   |
 | Icons    | Emoji + inline SVG                      |
+| Backend  | Node.js zero‑dependency HTTP server (optional, enables the admin panel) |
 
 No external JavaScript libraries or runtime dependencies are required.
 
@@ -60,11 +62,24 @@ francis-mwalimu-portfolio/
 ├── contact.html            # Contact info + form
 ├── feedback.html           # Private feedback form  (noindex)
 ├── privacy.html            # Privacy statement        (noindex)
+├── admin.html              # Admin panel (password-protected, noindex)
+├── admin.css               # Admin panel styles
 ├── css/
 │   └── style.css           # Single stylesheet (light/dark themes)
 ├── js/
-│   ├── data.js             # ALL site content (PORTFOLIO_DATA)
-│   └── main.js             # Rendering, theme, nav, filters, forms
+│   ├── data.js             # ALL bundled site content (PORTFOLIO_DATA)
+│   ├── main.js             # Rendering, theme, nav, filters, forms
+│   └── admin.js            # Admin panel application logic
+├── server/
+│   ├── server.js           # Node backend: static site + admin API
+│   ├── users.js            # Admin credentials (scrypt hash)
+│   ├── db.js               # JSON content database helpers
+│   ├── data/
+│   │   └── content.json    # Live content database (managed via admin)
+│   └── scripts/
+│       ├── init-data.js    # Extract js/data.js -> content.json
+│       ├── set-password.js # Set/change the admin password
+│       └── smoke-test.js   # API smoke tests
 ├── assets/
 │   └── images/             # Profile photo, OG image, etc.
 ├── docs/
@@ -100,6 +115,18 @@ Then open `http://localhost:8000`.
 npx serve .
 ```
 
+### Option 4 — Node.js backend with admin panel
+
+If you want the admin panel, run the included zero‑dependency Node server (it serves the whole site AND the content API):
+
+```bash
+node server/server.js          # or: npm start
+```
+
+Then open:
+- Public site: `http://localhost:3000/`
+- Admin panel: `http://localhost:3000/admin.html`
+
 > **Tip:** Avoid opening `index.html` directly via `file://` — some features (such as dynamic detail pages and asset paths) rely on being served over HTTP.
 
 ---
@@ -127,7 +154,7 @@ All site content is maintained in a single file: **`js/data.js`** — a global `
 | `resources`            | CV, technical documents & downloads            |
 | `githubRepos`          | Repositories shown on the GitHub page          |
 
-To update the site, edit the relevant section in `js/data.js` — the rendering code in `js/main.js` picks it up automatically with no other changes needed.
+To update the site, edit the relevant section in `js/data.js` — or use the admin panel, which writes to `server/data/content.json` instead. The rendering code in `js/main.js` picks up either source automatically (it loads `/api/content` when the Node backend is serving the site, otherwise falls back to the bundled `data.js`).
 
 ---
 
@@ -144,9 +171,64 @@ To update the site, edit the relevant section in `js/data.js` — the rendering 
 
 ---
 
+## 🛠️ Admin Panel
+
+A password‑protected admin panel at **`/admin.html`** lets you manage all portfolio content through a built‑in Node.js backend — no more editing JavaScript by hand.
+
+### Quick start
+
+```bash
+# 1. Extract the bundled content into the JSON database (first run only)
+node server/scripts/init-data.js
+
+# 2. Create your admin account (stores only a scrypt password hash)
+node server/scripts/set-password.js   # or: npm run set-password
+
+# 3. Start the server
+node server/server.js                 # or: npm start
+```
+
+Open `http://localhost:3000/admin.html` and sign in.
+
+> ⚠️ `server/config.json` (containing your password hash) is git‑ignored — never commit it. `server/data/content.json` is the live database and should be backed up regularly (there's a built‑in backup download).
+
+### What you can do
+
+- **Edit every section** — personal info, socials, skills, projects, live projects, certifications, experience, education, achievements, services, testimonials, blog posts, networking, security, resources and GitHub repos — with friendly generated forms (add/remove/reorder items, or switch to JSON mode for power editing).
+- **Export `data.js`** — download the current database as a site‑ready `js/data.js` file to commit for static hosting.
+- **Download backup** — a raw JSON snapshot of the database.
+- **Reset** — restore the database from the bundled `js/data.js`.
+- **Change password** — right from the panel, no CLI needed.
+
+### API overview
+
+| Method | Route | Description |
+| ------ | ----- | ----------- |
+| GET | `/api/health` | Health check (public) |
+| GET | `/api/content` | Full content (public — used by the site) |
+| POST | `/api/auth/login` | Sign in; sets an `HttpOnly` session cookie |
+| POST | `/api/auth/logout` | Sign out |
+| GET | `/api/auth/me` | Session check |
+| POST | `/api/auth/password` | Change password |
+| PUT | `/api/content/:section` | Update one content section |
+| PUT | `/api/content` | Replace whole content |
+| GET | `/api/export` | Download site‑ready `data.js` |
+| GET | `/api/backup` | Download JSON backup |
+| POST | `/api/reset` | Restore from bundled `data.js` |
+
+All write routes require a valid admin session. Login attempts are rate‑limited (5 tries / 15 minutes) and request bodies are size‑limited (3 MB).
+
+### Frontend behaviour
+
+When the site is served by the Node backend, `js/main.js` loads `/api/content` at startup, so admin edits appear on the live site immediately. On a static host (no backend), the bundled `js/data.js` is used — publish changes by exporting and committing the updated file. The admin panel and API are excluded from search engines via `robots.txt` and meta tags.
+
+---
+
 ## 🌐 Deployment
 
-The site runs on any static/HTTPS hosting platform:
+### Option A — Static hosting (no admin panel)
+
+The static site runs anywhere:
 
 - **GitHub Pages**
 - **Netlify**
@@ -154,7 +236,13 @@ The site runs on any static/HTTPS hosting platform:
 - **Cloudflare Pages**
 - Any HTTPS web server
 
-### Requirements
+To publish admin edits on a static host, use **Export data.js** in the panel and commit the downloaded file over `js/data.js`.
+
+### Option B — Node.js host (full admin panel)
+
+For the live admin panel, deploy `server/server.js` to a Node‑capable platform such as **Render**, **Railway**, **Fly.io**, **Glitch**, or any VPS (`npm start`). The server serves both the site and the API, so admin edits appear instantly. Set `secureCookies: true` in `server/config.json` when serving over HTTPS.
+
+### Requirements (both options)
 
 1. Serve `index.html` at the root.
 2. **Preserve query strings** so detail pages work (`project.html?id=...`, `article.html?id=...`).
@@ -181,7 +269,8 @@ The site runs on any static/HTTPS hosting platform:
 
 ## 🧹 Maintenance
 
-- **Content:** edit `js/data.js` only — cards, filters, and detail pages render automatically.
+- **Content:** edit `js/data.js`, or use the admin panel (which writes to `server/data/content.json`) — cards, filters, and detail pages render automatically. Run `node server/scripts/init-data.js` after you change `js/data.js` to refresh the database copy.
+- **Backups:** regularly download a backup from the admin panel (or copy `server/data/content.json`) — it's the live database on the Node host.
 - **Sitemap:** update `sitemap.xml` when adding indexable pages.
 - **Downloads:** keep public downloads limited to approved documents; never host private files.
 - **Analytics:** prefer privacy‑preserving, aggregate analytics only. This static frontend intentionally does not include a client‑side analytics dashboard or credentials.
@@ -196,6 +285,8 @@ The site runs on any static/HTTPS hosting platform:
 - [ ] Add approved files under `assets/docs/` and images under `assets/images/`.
 - [ ] Replace `example.com` with your real HTTPS domain in page metadata, `robots.txt`, `sitemap.xml`, and live‑project data.
 - [ ] Set `personal.contactFormEndpoint` to a trusted HTTPS form provider or your own server endpoint.
+- [ ] Set a strong admin password (`node server/scripts/set-password.js`) and never commit `server/config.json`.
+- [ ] Run `node server/scripts/init-data.js` so the database matches the final `js/data.js`.
 - [ ] Replace placeholder verification URLs and credential IDs on certifications.
 - [ ] Test all local links and assets after adding files.
 - [ ] Test keyboard navigation, reduced‑motion preference, mobile navigation, light/dark themes, and form validation.
