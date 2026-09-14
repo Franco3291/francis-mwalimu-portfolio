@@ -22,6 +22,18 @@ function defaultConfig() {
     maxLoginAttempts: 5,
     lockoutMinutes: 15,
     maxBodyBytes: 3 * 1024 * 1024,
+    uploadMaxBytes: 60 * 1024 * 1024, // max single file upload (60 MB)
+    contactRateLimit: 5, // contact/feedback messages per hour per IP
+    email: {
+      enabled: false,
+      host: '',
+      port: 465,
+      secure: true,
+      user: '',
+      pass: '',
+      from: '',
+      to: ''
+    },
     credentials: null // { username, salt, hash, N, r, p, keylen }
   };
 }

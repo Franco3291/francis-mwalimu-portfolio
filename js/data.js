@@ -213,6 +213,7 @@ var PORTFOLIO_DATA = {
         "Responsive design for desktop and mobile use"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Handling concurrent attendance submissions without data conflicts",
         "Designing a database schema that supports multiple classes and courses",
@@ -255,6 +256,7 @@ var PORTFOLIO_DATA = {
         "Responsive mobile-friendly design"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Implementing image upload and validation",
         "Designing an intuitive user interface for non-technical users"
@@ -295,6 +297,7 @@ var PORTFOLIO_DATA = {
         "Dashboard with library statistics"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Managing complex relationships between books, members and transactions",
         "Implementing fine calculation logic"
@@ -335,6 +338,7 @@ var PORTFOLIO_DATA = {
         "Room availability calendar"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Handling overlapping reservations and room availability conflicts",
         "Designing a billing system that supports multiple services"
@@ -375,6 +379,7 @@ var PORTFOLIO_DATA = {
         "History log"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Implementing local data persistence with SQLite",
         "Designing an intuitive and engaging UI"
@@ -415,6 +420,7 @@ var PORTFOLIO_DATA = {
         "Admin dashboard for bus and route management"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Implementing real-time seat availability tracking",
         "Preventing double booking of seats"
@@ -455,6 +461,7 @@ var PORTFOLIO_DATA = {
         "Daily/weekly reports"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Designing a flexible appointment scheduling system",
         "Managing client-service relationships"
@@ -495,6 +502,7 @@ var PORTFOLIO_DATA = {
         "Integration with student database"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Integrating barcode scanning hardware/software",
         "Ensuring accurate barcode reading"
@@ -536,6 +544,7 @@ var PORTFOLIO_DATA = {
         "Financial reports"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Modeling complex property-tenant-lease relationships",
         "Implementing payment tracking with arrears calculation"
@@ -576,6 +585,7 @@ var PORTFOLIO_DATA = {
         "API endpoint for integration"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Building a model with meaningful detection accuracy",
         "Handling different text lengths and styles"
@@ -618,6 +628,7 @@ var PORTFOLIO_DATA = {
         "Network documentation and diagrams"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Planning IP addressing to accommodate multiple VLANs",
         "Configuring inter-VLAN routing correctly",
@@ -661,6 +672,7 @@ var PORTFOLIO_DATA = {
         "Detailed lab write-ups"
       ],
       screenshots: [],
+      videoUrl: null,
       challenges: [
         "Setting up a safe lab environment",
         "Understanding tool outputs and interpreting results"
@@ -705,6 +717,7 @@ var PORTFOLIO_DATA = {
       category: "Networking",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://www.credly.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/ccna-intro.pdf", // TODO: Add certificate file
       description: "Foundational networking course covering network concepts, IP addressing, Ethernet, and basic network configuration.",
       skills: ["Networking Basics", "IP Addressing", "Ethernet", "Network Configuration"]
@@ -717,6 +730,7 @@ var PORTFOLIO_DATA = {
       category: "Cybersecurity",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://www.credly.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/cybersecurity-essentials.pdf", // TODO: Add certificate file
       description: "Introduction to cybersecurity concepts including threats, vulnerabilities, security principles and best practices.",
       skills: ["Security Fundamentals", "Threat Analysis", "Security Best Practices"]
@@ -729,6 +743,7 @@ var PORTFOLIO_DATA = {
       category: "Programming",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://www.credly.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/python-basics.pdf", // TODO: Add certificate file
       description: "Introduction to Python programming covering syntax, data structures, functions and basic problem-solving.",
       skills: ["Python", "Programming Fundamentals", "Problem Solving"]
@@ -741,6 +756,7 @@ var PORTFOLIO_DATA = {
       category: "Web Development",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://example.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/web-development.pdf", // TODO: Add certificate file
       description: "Comprehensive introduction to HTML, CSS and JavaScript for building modern websites.",
       skills: ["HTML", "CSS", "JavaScript", "Responsive Design"]
@@ -753,6 +769,7 @@ var PORTFOLIO_DATA = {
       category: "System Administration",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://example.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/linux-essentials.pdf", // TODO: Add certificate file
       description: "Foundational Linux skills covering command line, file systems, user management and system basics.",
       skills: ["Linux", "Command Line", "System Administration"]
@@ -765,6 +782,7 @@ var PORTFOLIO_DATA = {
       category: "Databases",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://example.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/database-design.pdf", // TODO: Add certificate file
       description: "Course covering relational database design, normalization and SQL query writing.",
       skills: ["SQL", "Database Design", "MySQL"]
@@ -777,6 +795,7 @@ var PORTFOLIO_DATA = {
       category: "Cybersecurity",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://example.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/ethical-hacking.pdf", // TODO: Add certificate file
       description: "Introduction to ethical hacking concepts, methodologies and tools used in penetration testing.",
       skills: ["Ethical Hacking", "Penetration Testing Basics", "Security Tools"]
@@ -789,6 +808,7 @@ var PORTFOLIO_DATA = {
       category: "Mobile Development",
       credentialId: "CERT-XXXX-XXXX", // TODO: Replace with real credential ID
       verificationUrl: "https://example.com/verify/XXXX", // TODO: Replace with real verification URL
+      certificateImage: null,
       certificateUrl: "assets/docs/certificates/flutter-development.pdf", // TODO: Add certificate file
       description: "Introduction to cross-platform mobile development using Flutter and Dart.",
       skills: ["Flutter", "Dart", "Mobile UI Design"]

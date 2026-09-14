@@ -370,6 +370,7 @@
         <div class="cert-date">📅 ${escapeHtml(cert.date)}</div>
         ${cert.credentialId ? `<div class="cert-credential">ID: ${escapeHtml(cert.credentialId)}</div>` : ''}
         <p style="font-size: 0.9rem; color: var(--text-muted); margin-bottom: 12px;">${escapeHtml(cert.description)}</p>
+        ${isConfiguredLink(cert.certificateImage) ? `<a class="cert-image-link" href="${escapeHtml(cert.certificateImage)}" target="_blank" rel="noopener noreferrer" aria-label="${escapeHtml(cert.title)} certificate image"><img class="cert-image" src="${escapeHtml(cert.certificateImage)}" alt="${escapeHtml(cert.title)} certificate" loading="lazy"></a>` : ''}
         <div class="cert-card-actions">
           ${isConfiguredLink(cert.verificationUrl) ? `<a href="${escapeHtml(cert.verificationUrl)}" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">Verify</a>` : ''}
           ${isConfiguredLink(cert.certificateUrl) ? `<a href="${escapeHtml(cert.certificateUrl)}" download class="btn btn-outline btn-sm">Download</a>` : ''}
@@ -636,10 +637,18 @@
     }
 
     const list = items => items && items.length ? `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : '<p class="card-text">Details will be added as this project is documented further.</p>';
+    const gallery = (project.screenshots || []).filter(isConfiguredLink);
+    const mediaHtml = (project.videoUrl || gallery.length)
+      ? `<div class="card">
+          ${project.videoUrl ? `<h2>Video Demonstration</h2><video controls preload="metadata" style="width:100%;border-radius:var(--radius-md)" src="${escapeHtml(project.videoUrl)}"></video>` : ''}
+          ${gallery.length ? `<h2>Project Gallery</h2><div class="project-gallery">${gallery.map(s => `<a href="${escapeHtml(s)}" target="_blank" rel="noopener noreferrer"><img src="${escapeHtml(s)}" alt="${escapeHtml(project.title)} screenshot" loading="lazy"></a>`).join('')}</div>` : ''}
+        </div>`
+      : '';
     container.innerHTML = `
       <section class="case-study-header"><div class="container"><div class="project-card-category">${escapeHtml(project.category)}</div><h1>${escapeHtml(project.title)}</h1><p>${escapeHtml(project.shortDescription)}</p></div></section>
       <nav class="breadcrumbs" aria-label="Breadcrumb"><div class="container"><ol><li><a href="index.html">Home</a></li><li><a href="projects.html">Projects</a></li><li class="current">${escapeHtml(project.title)}</li></ol></div></nav>
       <section class="section"><div class="container case-study-content">
+        ${mediaHtml}
         <div class="card"><h2>Overview</h2><p>${escapeHtml(project.description)}</p><h2>Problem</h2><p>${escapeHtml(project.problem)}</p><h2>Objectives</h2>${list(project.objectives)}<h2>Approach & Role</h2><p>${escapeHtml(project.role)}</p></div>
         <div class="card"><h2>Technologies</h2><div class="project-card-tech">${project.technologiesUsed.map(item => `<span class="tech-badge">${escapeHtml(item)}</span>`).join('')}</div><h2>Major Features</h2>${list(project.features)}</div>
         <div class="card"><h2>Challenges</h2>${list(project.challenges)}<h2>Solutions</h2>${list(project.solutions)}<h2>Results</h2><p>${escapeHtml(project.results)}</p></div>
@@ -896,6 +905,24 @@
     `;
   }
 
+  /* ==================== FORM SUBMISSION HELPER ==================== */
+  // Tries the backend API first; the caller falls back to the visitor's mail
+  // client when the API is unavailable or email is not configured yet.
+  async function submitMessage(path, payload) {
+    try {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify(payload)
+      });
+      if (res.ok) return { sent: true };
+      return { sent: false };
+    } catch (e) {
+      return { sent: false };
+    }
+  }
+
   /* ==================== FORM VALIDATION ==================== */
   function initContactForm() {
     const form = $('#contact-form');
@@ -961,31 +988,34 @@
       submitBtn.innerHTML = '<span class="loading-spinner"></span> Sending...';
       submitBtn.disabled = true;
 
-      const endpoint = PORTFOLIO_DATA.personal.contactFormEndpoint;
-      if (!endpoint) {
-        const body = `Name: ${name.value.trim()}\nEmail: ${email.value.trim()}\n\n${message.value.trim()}`;
-        window.location.href = `mailto:${PORTFOLIO_DATA.personal.email}?subject=${encodeURIComponent(subject.value.trim())}&body=${encodeURIComponent(body)}`;
-        submitBtn.innerHTML = originalText;
-        submitBtn.disabled = false;
-        return;
-      }
-
-      fetch(endpoint, { method: 'POST', body: new FormData(form), headers: { Accept: 'application/json' } })
-        .then(response => {
-          if (!response.ok) throw new Error('Message submission failed');
+      submitMessage('/api/contact', {
+        name: name.value.trim(),
+        email: email.value.trim(),
+        subject: subject.value.trim(),
+        message: message.value.trim(),
+        website: honeypot ? honeypot.value : ''
+      }).then(result => {
+        if (result.sent) {
           form.reset();
           if (successMsg) successMsg.classList.add('show');
-        })
-        .catch(() => {
+        } else {
+          // Fall back to the visitor's email client (backend unavailable).
+          const body = `Name: ${name.value.trim()}\nEmail: ${email.value.trim()}\n\n${message.value.trim()}`;
+          window.location.href = `mailto:${PORTFOLIO_DATA.personal.email}?subject=${encodeURIComponent(subject.value.trim())}&body=${encodeURIComponent(body)}`;
           if (successMsg) {
-            successMsg.textContent = 'Unable to send the message right now. Please use the email link instead.';
+            successMsg.textContent = 'Message launched in your email app. The online send service is temporarily unavailable.';
             successMsg.classList.add('show');
           }
-        })
-        .finally(() => {
-          submitBtn.innerHTML = originalText;
-          submitBtn.disabled = false;
-        });
+        }
+      }).catch(() => {
+        if (successMsg) {
+          successMsg.textContent = 'Unable to send the message right now. Please use the email link instead.';
+          successMsg.classList.add('show');
+        }
+      }).finally(() => {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+      });
     });
 
     // Clear invalid state on input
@@ -1025,10 +1055,33 @@
       submitBtn.innerHTML = '<span class="loading-spinner"></span> Submitting...';
       submitBtn.disabled = true;
 
-      const body = `Feedback from ${form.querySelector('#feedback-name')?.value.trim() || 'a visitor'}:\n\n${feedback.value.trim()}`;
-      window.location.href = `mailto:${PORTFOLIO_DATA.personal.email}?subject=${encodeURIComponent('Portfolio feedback')}&body=${encodeURIComponent(body)}`;
-      submitBtn.innerHTML = originalText;
-      submitBtn.disabled = false;
+      const senderName = form.querySelector('#feedback-name') ? form.querySelector('#feedback-name').value.trim() : '';
+      submitMessage('/api/feedback', {
+        name: senderName,
+        feedback: feedback.value.trim(),
+        website: honeypot ? honeypot.value : ''
+      }).then(result => {
+        if (result.sent) {
+          form.reset();
+          if (successMsg) successMsg.classList.add('show');
+        } else {
+          // Fall back to the visitor's email client (backend unavailable).
+          const body = `Feedback from ${senderName || 'a visitor'}:\n\n${feedback.value.trim()}`;
+          window.location.href = `mailto:${PORTFOLIO_DATA.personal.email}?subject=${encodeURIComponent('Portfolio feedback')}&body=${encodeURIComponent(body)}`;
+          if (successMsg) {
+            successMsg.textContent = 'Feedback launched in your email app. The online send service is temporarily unavailable.';
+            successMsg.classList.add('show');
+          }
+        }
+      }).catch(() => {
+        if (successMsg) {
+          successMsg.textContent = 'Unable to send your feedback right now. Please use the email link instead.';
+          successMsg.classList.add('show');
+        }
+      }).finally(() => {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+      });
     });
 
     $$('.form-control', form).forEach(input => {
@@ -1099,7 +1152,7 @@
         <div class="footer-bottom">
           <p>© ${new Date().getFullYear()} ${escapeHtml(p.name)}. All rights reserved. | Built with ❤️ and modern web technologies</p>
           <p style="margin-top: 4px;">
-            <a href="privacy.html">Privacy Policy</a> | <a href="sitemap.xml">Sitemap</a>
+            <a href="privacy.html">Privacy Policy</a> | <a href="sitemap.xml">Sitemap</a> | <a href="admin.html" rel="nofollow">Admin</a>
           </p>
         </div>
       </div>

@@ -119,15 +119,92 @@
         el.type = 'text';
       }
       el.value = value == null ? '' : value;
-      if (key && /url|path|image|file/i.test(key)) el.classList.add('mono');
+      if (key && /url|path|image|file|asset/i.test(key)) el.classList.add('mono');
     }
     el.classList.add('admin-control');
+    if (el.type === 'text' && isUploadKey(key, value)) el = wrapUploadControl(el, key, value);
     return el;
   }
   function readInput(el) {
     if (el.type === 'checkbox') return el.checked;
     if (el.type === 'number') return el.value === '' ? null : Number(el.value);
     return el.value;
+  }
+
+  /* ==================== Uploads ==================== */
+  const UPLOAD_FOLDERS = ['profile', 'certificates', 'projects', 'videos', 'docs'];
+  function isUploadKey(key, value) {
+    if (/^\/?assets\//.test(String(value || ''))) return true;
+    if (!key) return false;
+    return /image|photo|video|certificate|cert-|profile|avatar|logo|banner|thumb|screenshot|document|resume|cv|file|assets/i.test(key);
+  }
+  function inferUploadFolder(key, value) {
+    const v = String(value || '');
+    const m = v.match(/\/uploads\/([a-z]+)\//);
+    if (m && UPLOAD_FOLDERS.indexOf(m[1]) !== -1) return m[1];
+    if (/video/i.test(key || '')) return 'videos';
+    if (/cert/i.test(key || '')) return 'certificates';
+    if (/profile|avatar/i.test(key || '')) return 'profile';
+    if (/\.pdf$/i.test(v)) return 'docs';
+    return 'projects';
+  }
+  async function uploadFile(file, folder) {
+    const fd = new FormData();
+    fd.append('folder', folder);
+    fd.append('file', file);
+    const res = await fetch('/api/upload', { method: 'POST', body: fd, credentials: 'same-origin' });
+    let data = null;
+    try { data = await res.json(); } catch (e) { data = null; }
+    if (!res.ok) throw new Error((data && data.error) || ('Upload failed (' + res.status + ')'));
+    return data.url;
+  }
+  function previewForUrl(url) {
+    const v = String(url || '');
+    if (/\.(jpe?g|png|gif|webp)(\?|$)/i.test(v)) return '<img class="admin-preview" src="' + esc(v) + '" alt="preview">';
+    if (/\.(mp4|webm)(\?|$)/i.test(v)) return '<video class="admin-preview" controls preload="metadata" src="' + esc(v) + '"></video>';
+    return '';
+  }
+  function wrapUploadControl(inputEl, key, value) {
+    const wrap = document.createElement('div');
+    wrap.className = 'admin-upload-wrap';
+    const row = document.createElement('div');
+    row.className = 'admin-upload-actions';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn btn-ghost btn-sm';
+    btn.textContent = '⬆ Upload';
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.hidden = true;
+    btn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', async () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      btn.disabled = true;
+      btn.textContent = 'Uploading…';
+      try {
+        const url = await uploadFile(file, inferUploadFolder(key, inputEl.value));
+        inputEl.value = url;
+        const box = wrap.querySelector('.admin-preview-box');
+        if (box) box.innerHTML = previewForUrl(url);
+        setDirty(true);
+        toast('Uploaded ' + url);
+      } catch (e) {
+        toast(e.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⬆ Upload';
+        fileInput.value = '';
+      }
+    });
+    const previewBox = document.createElement('div');
+    previewBox.className = 'admin-preview-box';
+    previewBox.innerHTML = previewForUrl(inputEl.value);
+    row.appendChild(btn);
+    wrap.appendChild(inputEl);
+    wrap.appendChild(row);
+    wrap.appendChild(previewBox);
+    return wrap;
   }
 
 /* ==================== Generic form rendering ====================
@@ -294,7 +371,7 @@
         out[key] = collectObject(fieldsEl);
         return;
       }
-      const input = child.querySelector('input, textarea');
+      const input = child.querySelector('input:not([type="file"]), textarea');
       if (input) out[key] = readInput(input);
     });
     return out;
@@ -308,7 +385,7 @@
         const fields = child.querySelector('.admin-item-body .admin-fields');
         if (fields) out.push(collectObject(fields));
       } else {
-        const input = child.querySelector('input, textarea');
+        const input = child.querySelector('input:not([type="file"]), textarea');
         if (input) out.push(readInput(input));
       }
     });
@@ -449,6 +526,8 @@
     export: { label: 'Export data.js', desc: 'Download the current database as a site-ready js/data.js file — commit it to publish changes to a static host.' },
     backup: { label: 'Download backup', desc: 'Download the full content database as a raw JSON backup file.' },
     reset: { label: 'Reset from data.js', desc: 'Replace the database with the bundled content from js/data.js. All admin edits will be erased.' },
+    uploads: { label: 'Uploads', desc: 'Upload project images, short videos, certificate images, profile photos and PDFs to use across the site.' },
+    email: { label: 'Email settings', desc: 'Configure the SMTP server that delivers contact and feedback messages, then send a test message.' },
     password: { label: 'Change password', desc: 'Update the admin panel sign-in password.' }
   };
 
@@ -576,7 +655,181 @@
           errEl.hidden = false;
         }
       });
+    } else if (name === 'uploads') {
+      renderUploadTool(bodyEl);
+    } else if (name === 'email') {
+      renderEmailTool(bodyEl);
     }
+  }
+
+  /* ==================== Uploads tool ==================== */
+  function renderUploadTool(bodyEl) {
+    bodyEl.innerHTML =
+      '<div class="admin-tool-card">' +
+      '<div class="admin-card">' +
+      '<h2>Upload a file</h2>' +
+      '<p>Pick the section and choose a file. Images (jpg/png/gif/webp), videos (mp4/webm) and PDFs are validated by their content, not just the filename.</p>' +
+      '<div class="admin-upload-widget">' +
+      '<select class="admin-control" id="upload-folder" style="max-width:220px">' +
+      '<option value="projects">Project images</option>' +
+      '<option value="videos">Project videos</option>' +
+      '<option value="certificates">Certificate images</option>' +
+      '<option value="profile">Profile photo</option>' +
+      '<option value="docs">Documents (PDF)</option>' +
+      '</select>' +
+      '<input type="file" id="upload-file" class="admin-control" style="max-width:320px">' +
+      '<button class="btn btn-primary" id="upload-go" type="button">Upload</button>' +
+      '</div></div>' +
+      '<div class="admin-card" style="margin-top:16px">' +
+      '<h2>Stored files</h2>' +
+      '<div id="uploads-list"></div>' +
+      '</div></div>';
+    $('#upload-go').addEventListener('click', async () => {
+      const file = $('#upload-file').files && $('#upload-file').files[0];
+      if (!file) { toast('Choose a file first', true); return; }
+      const btn = $('#upload-go');
+      btn.disabled = true;
+      btn.textContent = 'Uploading…';
+      try {
+        const url = await uploadFile(file, $('#upload-folder').value);
+        toast('Uploaded ' + url);
+        renderUploadsList();
+      } catch (e) { toast(e.message, true); }
+      finally {
+        btn.disabled = false;
+        btn.textContent = 'Upload';
+        $('#upload-file').value = '';
+      }
+    });
+    renderUploadsList();
+  }
+
+  function isImageUrl(u) { return /\.(jpe?g|png|gif|webp)(\?|$)/i.test(u); }
+
+  async function renderUploadsList() {
+    const listEl = $('#uploads-list');
+    if (!listEl) return;
+    try {
+      const res = await api('/api/uploads');
+      const files = (res.files || []).filter(f => f && f.url);
+      if (!files.length) {
+        listEl.innerHTML = '<p class="admin-editor-desc">No files uploaded yet. The Upload button above will fill this list.</p>';
+        return;
+      }
+      listEl.innerHTML = files.map(f =>
+        '<div class="admin-upload-item">' +
+        (isImageUrl(f.url)
+          ? '<img class="admin-upload-thumb" src="' + esc(f.url) + '" alt="">'
+          : '<div class="admin-upload-thumb admin-upload-thumb-file">' + esc((f.url.match(/\.([a-z0-9]+)(\?|$)/i) || [, 'FILE'])[1].toUpperCase()) + '</div>') +
+        '<code class="admin-upload-url">' + esc(f.url) + '</code>' +
+        '<span class="admin-upload-size">' + esc(formatBytes(f.size)) + '</span>' +
+        '<button class="btn btn-ghost btn-sm" data-copy="' + esc(f.url) + '">Copy URL</button>' +
+        '<button class="btn btn-ghost btn-sm admin-upload-del" data-del="' + esc(f.url) + '">✕</button>' +
+        '</div>').join('');
+      listEl.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => {
+        if (navigator.clipboard) navigator.clipboard.writeText(b.dataset.copy).then(() => toast('URL copied'));
+      }));
+      listEl.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', async () => {
+        const ok = await confirmDialog('Delete ' + b.dataset.del + '? This only removes the file — no content field is changed automatically.', 'Delete file');
+        if (!ok) return;
+        try {
+          const r = await fetch('/api/upload?url=' + encodeURIComponent(b.dataset.del), { method: 'DELETE', credentials: 'same-origin' });
+          if (!r.ok) throw new Error('delete failed (' + r.status + ')');
+          toast('Deleted');
+          renderUploadsList();
+        } catch (e) { toast(e.message, true); }
+      }));
+    } catch (e) {
+      listEl.innerHTML = '<p class="admin-editor-desc">Failed to load files: ' + esc(e.message) + '</p>';
+    }
+  }
+
+  function formatBytes(n) {
+    if (!n && n !== 0) return '';
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+/* ==================== Email tool ==================== */
+  function renderEmailTool(bodyEl) {
+    bodyEl.innerHTML =
+      '<div class="admin-tool-card admin-card">' +
+      '<h2>Email settings</h2>' +
+      '<p>Configure SMTP so contact and feedback messages are delivered from the server. Leave the password blank to keep the current one.</p>' +
+      '<form id="email-form" novalidate>' +
+      '<label class="admin-check"><input type="checkbox" id="email-enabled"> Enabled — send messages from this server</label>' +
+      '<div class="form-group"><label class="form-label" for="email-host">SMTP host</label>' +
+      '<input class="form-control" id="email-host" placeholder="smtp.example.com" autocomplete="off"></div>' +
+      '<div class="form-group"><label class="form-label" for="email-port">Port</label>' +
+      '<input class="form-control" id="email-port" type="number" placeholder="465"></div>' +
+      '<label class="admin-check"><input type="checkbox" id="email-secure" checked> Use implicit TLS (SSL)</label>' +
+      '<div class="form-group"><label class="form-label" for="email-user">Username</label>' +
+      '<input class="form-control" id="email-user" autocomplete="off"></div>' +
+      '<div class="form-group"><label class="form-label" for="email-pass">Password</label>' +
+      '<input class="form-control" id="email-pass" type="password" autocomplete="new-password" placeholder="Not set"></div>' +
+      '<div class="form-group"><label class="form-label" for="email-from">From address</label>' +
+      '<input class="form-control" id="email-from" placeholder="noreply@example.com"></div>' +
+      '<div class="form-group"><label class="form-label" for="email-to">Deliver to</label>' +
+      '<input class="form-control" id="email-to" placeholder="you@example.com"></div>' +
+      '<div class="form-error" id="email-error" hidden></div>' +
+      '<div class="admin-email-actions">' +
+      '<button class="btn btn-primary" type="submit">Save settings</button>' +
+      '<button class="btn btn-ghost" type="button" id="email-test">Send test email</button>' +
+      '</div></form></div>';
+    loadEmailForm();
+    $('#email-form').addEventListener('submit', async e => {
+      e.preventDefault();
+      const errEl = $('#email-error');
+      errEl.hidden = true;
+      const body = {
+        enabled: $('#email-enabled').checked,
+        host: $('#email-host').value.trim(),
+        port: parseInt($('#email-port').value, 10) || 465,
+        secure: $('#email-secure').checked,
+        user: $('#email-user').value.trim(),
+        pass: $('#email-pass').value,
+        from: $('#email-from').value.trim(),
+        to: $('#email-to').value.trim()
+      };
+      if (body.enabled && (!body.host || !body.from || !body.to)) {
+        errEl.textContent = 'SMTP host, From and Deliver-to are required when enabled.';
+        errEl.hidden = false;
+        return;
+      }
+      try {
+        await api('/api/email/config', 'POST', body);
+        $('#email-pass').value = '';
+        toast('Email settings saved');
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.hidden = false;
+      }
+    });
+    $('#email-test').addEventListener('click', async () => {
+      const btn = $('#email-test');
+      btn.disabled = true;
+      try {
+        await api('/api/email/test', 'POST', {});
+        toast('Test email sent — check the Deliver-to inbox');
+      } catch (err) { toast(err.message, true); }
+      finally { btn.disabled = false; }
+    });
+  }
+
+  async function loadEmailForm() {
+    try {
+      const res = await api('/api/email/config');
+      const c = res.config || {};
+      $('#email-enabled').checked = !!c.enabled;
+      $('#email-host').value = c.host || '';
+      $('#email-port').value = c.port || 465;
+      $('#email-secure').checked = c.secure !== false;
+      $('#email-user').value = c.user || '';
+      $('#email-from').value = c.from || '';
+      $('#email-to').value = c.to || '';
+      $('#email-pass').placeholder = c.hasPass ? '•••••••• (leave blank to keep)' : 'Not set';
+    } catch (e) { toast(e.message, true); }
   }
 
   /* ==================== Init ==================== */
