@@ -22,7 +22,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { readConfig, writeConfig, hashPassword, verifyPassword } = require('./users');
-const { ROOT, readDatabase, writeDatabase, initDatabase, exportDataJs } = require('./db');
+const { ROOT, readDatabase, writeDatabase, initDatabase, exportDataJs, extractFromDataJs } = require('./db');
 const { sendMail, escHtml } = require('./email');
 
 const config = readConfig();
@@ -187,7 +187,9 @@ function parseMultipart(buf, boundary) {
 
 function safeResolveUpload(urlPath) {
   let rel;
-  try { rel = decodeURIComponent(String(urlPath || '').replace(/^\/+/, '')); } catch (e) { return null; }
+  try {
+    rel = decodeURIComponent(String(urlPath || '').replace(/^\/+/, '').replace(/^assets\/uploads\//, ''));
+  } catch (e) { return null; }
   const full = path.normalize(path.join(UPLOAD_ROOT, rel));
   if (full !== UPLOAD_ROOT && !full.startsWith(UPLOAD_ROOT + path.sep)) return null;
   return full;
@@ -594,4 +596,14 @@ server.listen(config.port, config.host, () => {
   console.log('  Public site : http://localhost:' + config.port + '/');
   console.log('  Admin panel : http://localhost:' + config.port + '/admin.html');
   console.log('  Admin user  : ' + (creds ? creds.username : 'NOT CONFIGURED (run: node server/scripts/set-password.js)'));
+  try {
+    const current = Object.keys(readDatabase());
+    const fresh = Object.keys(extractFromDataJs());
+    const missing = fresh.filter(k => current.indexOf(k) === -1);
+    const extra = current.filter(k => fresh.indexOf(k) === -1);
+    if (missing.length) console.log('[db] WARNING: js/data.js has sections missing from content.json: ' + missing.join(', ') + '. Run: node server/scripts/init-data.js --force');
+    if (extra.length) console.log('[db] NOTE: content.json has extra sections not in js/data.js: ' + extra.join(', '));
+  } catch (e) {
+    console.log('[db] NOTE: could not verify content database:', e.message);
+  }
 });

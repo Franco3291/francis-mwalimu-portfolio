@@ -468,6 +468,7 @@
         "Responsive design for desktop and mobile use"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Handling concurrent attendance submissions without data conflicts",
         "Designing a database schema that supports multiple classes and courses",
@@ -523,6 +524,7 @@
         "Responsive mobile-friendly design"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Implementing image upload and validation",
         "Designing an intuitive user interface for non-technical users"
@@ -576,6 +578,7 @@
         "Dashboard with library statistics"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Managing complex relationships between books, members and transactions",
         "Implementing fine calculation logic"
@@ -629,6 +632,7 @@
         "Room availability calendar"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Handling overlapping reservations and room availability conflicts",
         "Designing a billing system that supports multiple services"
@@ -678,6 +682,7 @@
         "History log"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Implementing local data persistence with SQLite",
         "Designing an intuitive and engaging UI"
@@ -731,6 +736,7 @@
         "Admin dashboard for bus and route management"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Implementing real-time seat availability tracking",
         "Preventing double booking of seats"
@@ -784,6 +790,7 @@
         "Daily/weekly reports"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Designing a flexible appointment scheduling system",
         "Managing client-service relationships"
@@ -837,6 +844,7 @@
         "Integration with student database"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Integrating barcode scanning hardware/software",
         "Ensuring accurate barcode reading"
@@ -891,6 +899,7 @@
         "Financial reports"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Modeling complex property-tenant-lease relationships",
         "Implementing payment tracking with arrears calculation"
@@ -940,6 +949,7 @@
         "API endpoint for integration"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Building a model with meaningful detection accuracy",
         "Handling different text lengths and styles"
@@ -994,6 +1004,7 @@
         "Network documentation and diagrams"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Planning IP addressing to accommodate multiple VLANs",
         "Configuring inter-VLAN routing correctly",
@@ -1048,6 +1059,7 @@
         "Detailed lab write-ups"
       ],
       "screenshots": [],
+      "videoUrl": null,
       "challenges": [
         "Setting up a safe lab environment",
         "Understanding tool outputs and interpreting results"
@@ -1091,6 +1103,7 @@
       "category": "Networking",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://www.credly.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/ccna-intro.pdf",
       "description": "Foundational networking course covering network concepts, IP addressing, Ethernet, and basic network configuration.",
       "skills": [
@@ -1108,6 +1121,7 @@
       "category": "Cybersecurity",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://www.credly.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/cybersecurity-essentials.pdf",
       "description": "Introduction to cybersecurity concepts including threats, vulnerabilities, security principles and best practices.",
       "skills": [
@@ -1124,6 +1138,7 @@
       "category": "Programming",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://www.credly.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/python-basics.pdf",
       "description": "Introduction to Python programming covering syntax, data structures, functions and basic problem-solving.",
       "skills": [
@@ -1140,6 +1155,7 @@
       "category": "Web Development",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://example.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/web-development.pdf",
       "description": "Comprehensive introduction to HTML, CSS and JavaScript for building modern websites.",
       "skills": [
@@ -1157,6 +1173,7 @@
       "category": "System Administration",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://example.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/linux-essentials.pdf",
       "description": "Foundational Linux skills covering command line, file systems, user management and system basics.",
       "skills": [
@@ -1173,6 +1190,7 @@
       "category": "Databases",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://example.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/database-design.pdf",
       "description": "Course covering relational database design, normalization and SQL query writing.",
       "skills": [
@@ -1189,6 +1207,7 @@
       "category": "Cybersecurity",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://example.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/ethical-hacking.pdf",
       "description": "Introduction to ethical hacking concepts, methodologies and tools used in penetration testing.",
       "skills": [
@@ -1205,6 +1224,7 @@
       "category": "Mobile Development",
       "credentialId": "CERT-XXXX-XXXX",
       "verificationUrl": "https://example.com/verify/XXXX",
+      "certificateImage": null,
       "certificateUrl": "assets/docs/certificates/flutter-development.pdf",
       "description": "Introduction to cross-platform mobile development using Flutter and Dart.",
       "skills": [

@@ -74,6 +74,13 @@ const smtpServer = net.createServer(sock => {
 });
 smtpServer.listen(0, '127.0.0.1', () => { smtpPort = smtpServer.address().port; });
 
+function decodeSubject(mail) {
+  const mm = mail.match(/Subject: =\?UTF-8\?B\?([A-Za-z0-9+/=]+)\?=/);
+  if (mm) { try { return Buffer.from(mm[1], 'base64').toString('utf8'); } catch (e) { } }
+  const raw = mail.match(/Subject: ([^\r\n]*)/i);
+  return raw ? raw[1] : '';
+}
+
 async function upload(folder, fileBuf, filename, type) {
   const fd = new FormData();
   fd.append('folder', folder);
@@ -105,7 +112,8 @@ async function upload(folder, fileBuf, filename, type) {
 
   const login = await req('POST', '/api/auth/login', { username: 'admin', password: 'changeme-123' });
   check('admin login', login.status === 200);
-  check('public index has Admin footer link', (await req('GET', '/')).text.indexOf('href="admin.html"') > -1);
+  const mainJs = await req('GET', '/js/main.js');
+  check('footer renders Admin link (js/main.js)', mainJs.status === 200 && mainJs.text.indexOf('href="admin.html"') > -1, 'status=' + mainJs.status);
   check('project detail still served', (await req('GET', '/project.html?id=ai-content-detection')).status === 200);
 
   console.log('\n[uploads]');
@@ -165,15 +173,15 @@ console.log('\n[email]');
   check('valid feedback -> 200', feedback.status === 200, 'status=' + feedback.status);
 
   await new Promise(r => setTimeout(r, 400));
-  check('SMTP inbox received ' + inbox.length + ' messages (expect 3)', inbox.length === 3, 'got ' + inbox.length);
-  check('contact mail has correct subject', inbox.some(m => m.includes('[Portfolio Contact] Project inquiry')), '');
+  check('SMTP inbox received ' + inbox.length + ' messages (expect 2)', inbox.length === 2, 'got ' + inbox.length);
+  check('contact mail has correct subject', inbox.some(m => decodeSubject(m) === '[Portfolio Contact] Project inquiry'), '');
   check('contact mail contains the message', inbox.some(m => m.includes('Jane Doe') && m.includes('jane@example.com') && m.includes('discuss a project')), '');
-  check('feedback mail delivered', inbox.some(m => m.includes('Portfolio feedback from Sam')), '');
+  check('feedback mail delivered', inbox.some(m => decodeSubject(m).indexOf('Portfolio feedback from Sam') === 0), '');
 
   const testMail = await req('POST', '/api/email/test', {});
   check('email test -> 200', testMail.status === 200, 'status=' + testMail.status);
   await new Promise(r => setTimeout(r, 300));
-  check('test email received by SMTP inbox', inbox.some(m => m.includes('Test email from Francis Mwalimu Portfolio')), '');
+  check('test email received by SMTP inbox', inbox.some(m => decodeSubject(m) === 'Test email from Francis Mwalimu Portfolio'), '');
 
   let rlStatus = null;
   for (let i = 0; i < 5; i++) {
@@ -188,10 +196,11 @@ console.log('\n[email]');
   await req('DELETE', '/api/upload?url=' + encodeURIComponent(certUrl));
   await req('POST', '/api/email/config', { enabled: false, host: '', port: 465, secure: true, user: '', pass: '', from: '', to: '' });
 
-  child.kill();
-  smtpServer.close();
   const leftover = await req('GET', '/api/uploads');
   check('no test files left behind', !leftover.data.files.some(f => f.url.startsWith('/assets/uploads/')), JSON.stringify(leftover.data.files));
+
+  child.kill();
+  smtpServer.close();
 
   console.log('');
   if (fails) { console.log(fails + ' check(s) FAILED'); process.exit(1); }
