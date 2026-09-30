@@ -242,6 +242,10 @@ console.log('\n[email]');
   const links = await req('GET', '/api/check-links');
   check('check-links -> 200', links.status === 200 && Array.isArray(links.data.missing), 'status=' + links.status);
   check('check-links scanned > 0 references', typeof links.data.checked === 'number' && links.data.checked > 0, 'checked=' + links.data.checked);
+  // The collector must not mistake prose/emails/skill names for file paths.
+  const bogus = (links.data.missing || []).filter(x =>
+    /\s/.test(x.url) || !/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|mov|mp3|pdf|docx?|xlsx?|pptx?|zip|rar|7z|json|txt|csv|md|html?|css|js|woff2?|ttf|otf|eot)(?:[?#].*)?$/.test(x.url.split('?')[0]) && !x.url.includes('/'));
+  check('check-links no prose/email/skill false positives', bogus.length === 0, 'bogus=' + JSON.stringify(bogus.slice(0, 3)));
 
   const preBackups = (await req('GET', '/api/backups')).data.backups.map(b => b.file);
   const backupsAnon = await req('GET', '/api/backups', undefined, false);

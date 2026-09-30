@@ -468,28 +468,45 @@ function serveRobots(req, res) {
 }
 
 /* ==================== Admin: broken-link checker ==================== */
+// Only fields whose key signals a URL/file reference are scanned; label fields
+// (name, title, description, content, …) may otherwise contain dots or slashes
+// and are not file references.
+const URL_FIELD_RE = /url|link|href|src|path|file|image|photo|cv|icon|download|writeup|video|demo|site|avatar|cover|logo|thumbnail|paper|attachment|profile/i;
 // Recursively collect local (non-external) paths from the content database.
-function collectLocalUrls(value, section, out, seen) {
+function collectLocalUrls(value, key, section, out, seen) {
   if (value == null || typeof value === 'boolean' || typeof value === 'number') return;
   if (typeof value === 'string') {
+    if (!URL_FIELD_RE.test(key)) return; // ignore prose/label fields
     const s = value.trim();
-    if (!s || s.charAt(0) === '#' || /^(https?:)?\/\//i.test(s) || /^data:/i.test(s) ||
+    if (!s || s.charAt(0) === '#') return;
+    // External references & non-path schemes are out of scope for a local-file check.
+    if (/^(https?:)?\/\//i.test(s) || /^data:/i.test(s) ||
         /^(mailto:|tel:|javascript:)/i.test(s) || s.indexOf('://') !== -1) return;
+    // Email addresses are contacts, not files.
+    if (/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(s)) return;
+    // Real relative paths/filenames never contain whitespace.
+    if (/\s/.test(s)) return;
     const bare = s.replace(/^\.?\//, '');
     const m = bare.match(/^[^?#]*/);
-    if (!m[0] || !m[0].includes('.') || m[0].endsWith('/')) return; // folders / nav
-    const key = bare;
-    if (!seen.has(key)) {
-      seen.add(key);
+    const p = m[0];
+    if (!p || p.endsWith('/')) return;
+    // Only path-looking tokens with safe characters.
+    if (!/^[\w./~@$'-]+$/.test(p)) return;
+    // Must be a path (contains '/') or a bare filename with a known asset extension.
+    const hasSlash = p.indexOf('/') !== -1;
+    const hasKnownExt = /\.(png|jpe?g|gif|webp|svg|bmp|ico|avif|mp4|webm|mov|mp3|pdf|docx?|xlsx?|pptx?|zip|rar|7z|json|txt|csv|md|html?|css|js|woff2?|ttf|otf|eot)$/i.test(p);
+    if (!hasSlash && !hasKnownExt) return;
+    if (!seen.has(bare)) {
+      seen.add(bare);
       out.push({ url: s, section });
     }
     return;
   }
   if (Array.isArray(value)) {
-    value.forEach(v => collectLocalUrls(v, section, out, seen));
+    value.forEach(v => collectLocalUrls(v, key, section, out, seen));
     return;
   }
-  Object.keys(value).forEach(k => collectLocalUrls(value[k], section, out, seen));
+  Object.keys(value).forEach(k => collectLocalUrls(value[k], k, section, out, seen));
 }
 
 // True when the local path resolves to an existing file inside STATIC_ROOT.
@@ -508,7 +525,7 @@ function checkContentLinks() {
   const db = readDatabase();
   const out = [];
   const seen = new Set();
-  Object.keys(db).forEach(section => collectLocalUrls(db[section], section, out, seen));
+  Object.keys(db).forEach(section => collectLocalUrls(db[section], section, section, out, seen));
   const missing = out.filter(entry => !fileExistsLocal(entry.url));
   return { checked: out.length, missing, totalMissing: missing.length };
 }
