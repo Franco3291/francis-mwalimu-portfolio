@@ -12,6 +12,71 @@ const ROOT = path.join(__dirname, '..'); // project root
 const DATA_JS_PATH = path.join(ROOT, 'js', 'data.js');
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'content.json');
+const BACKUP_DIR = path.join(DATA_DIR, 'backups');
+const BACKUP_KEEP = 20; // number of automatic backups to retain
+
+/* ==================== Automatic backups (with rotation) ==================== */
+
+function backupStamp(d) {
+  const p = n => String(n).padStart(2, '0');
+  return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) +
+    '-' + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+}
+
+// Snapshot the given data to server/data/backups/backup-<timestamp>.json and
+// keep only the newest BACKUP_KEEP backups.
+function createBackup(data) {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const name = 'backup-' + backupStamp(new Date()) + '.json';
+  const tmp = path.join(BACKUP_DIR, name + '.tmp');
+  fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
+  fs.renameSync(tmp, path.join(BACKUP_DIR, name));
+  const files = fs.readdirSync(BACKUP_DIR).filter(f => /^backup-.*\.json$/.test(f)).sort();
+  while (files.length > BACKUP_KEEP) {
+    const oldest = files.shift();
+    try { fs.unlinkSync(path.join(BACKUP_DIR, oldest)); } catch (e) { /* ignore */ }
+  }
+  return name;
+}
+
+function listBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) return [];
+  return fs.readdirSync(BACKUP_DIR)
+    .filter(f => /^backup-.*\.json$/.test(f))
+    .map(f => {
+      const full = path.join(BACKUP_DIR, f);
+      let size = 0;
+      let mtime = null;
+      try {
+        const st = fs.statSync(full);
+        size = st.size;
+        mtime = st.mtime;
+      } catch (e) { /* ignore */ }
+      return { file: f, size, mtime: mtime ? mtime.toISOString() : null };
+    })
+    .sort((a, b) => a.file.localeCompare(b.file));
+}
+
+// Read a stored backup by its file name. The name is validated so only files
+// in the backups directory are ever reachable (no path traversal).
+function readBackup(file) {
+  if (typeof file !== 'string' || !/^backup-[A-Za-z0-9._-]+\.json$/.test(file)) {
+    throw new Error('invalid backup file name');
+  }
+  const full = path.normalize(path.join(BACKUP_DIR, file));
+  if (full !== BACKUP_DIR && !full.startsWith(BACKUP_DIR + path.sep)) {
+    throw new Error('invalid backup path');
+  }
+  if (!fs.existsSync(full) || !fs.statSync(full).isFile()) {
+    throw new Error('backup not found: ' + file);
+  }
+  const raw = fs.readFileSync(full, 'utf8');
+  const data = JSON.parse(raw);
+  if (!data || typeof data !== 'object' || Array.isArray(data) || !data.personal) {
+    throw new Error('backup does not look like a valid content database');
+  }
+  return data;
+}
 
 function extractFromDataJs() {
   const source = fs.readFileSync(DATA_JS_PATH, 'utf8');
@@ -41,6 +106,9 @@ function readDatabase() {
 
 function writeDatabase(data) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
+  // Snapshot the incoming state before it becomes the live database, then
+  // rotate so only the newest BACKUP_KEEP backups are retained.
+  try { createBackup(data); } catch (e) { console.error('[db] backup failed:', e.message); }
   const tmp = DB_PATH + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2) + '\n', 'utf8');
   fs.renameSync(tmp, DB_PATH);
@@ -66,4 +134,4 @@ function exportDataJs(data) {
   return header + 'var PORTFOLIO_DATA = ' + JSON.stringify(data, null, 2) + ';\n';
 }
 
-module.exports = { ROOT, DB_PATH, DATA_JS_PATH, extractFromDataJs, readDatabase, writeDatabase, initDatabase, exportDataJs };
+module.exports = { ROOT, DB_PATH, DATA_JS_PATH, BACKUP_DIR, BACKUP_KEEP, extractFromDataJs, readDatabase, writeDatabase, initDatabase, exportDataJs, createBackup, listBackups, readBackup };

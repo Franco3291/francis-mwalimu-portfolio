@@ -5,6 +5,12 @@ npm-debug.log*
 # Admin credentials & secrets (contains password hash)
 server/config.json
 
+# User-uploaded content (managed at runtime; keep repo clean)
+assets/uploads/
+
+# Automatic content backups (managed at runtime with rotation)
+server/data/backups/
+
 # OS
 .DS_Store
 Thumbs.db

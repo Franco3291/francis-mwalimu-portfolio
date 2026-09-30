@@ -525,6 +525,8 @@
   const TOOL_META = {
     export: { label: 'Export data.js', desc: 'Download the current database as a site-ready js/data.js file — commit it to publish changes to a static host.' },
     backup: { label: 'Download backup', desc: 'Download the full content database as a raw JSON backup file.' },
+    backups: { label: 'Backups & restore', desc: 'Every content save automatically creates a timestamped backup (the latest 20 are kept). Restore a previous version or download one.' },
+    'check-links': { label: 'Check links', desc: 'Scan the content database for file and page references and report any that point to missing files on the server.' },
     reset: { label: 'Reset from data.js', desc: 'Replace the database with the bundled content from js/data.js. All admin edits will be erased.' },
     uploads: { label: 'Uploads', desc: 'Upload project images, short videos, certificate images, profile photos and PDFs to use across the site.' },
     email: { label: 'Email settings', desc: 'Configure the SMTP server that delivers contact and feedback messages, then send a test message.' },
@@ -659,6 +661,106 @@
       renderUploadTool(bodyEl);
     } else if (name === 'email') {
       renderEmailTool(bodyEl);
+    } else if (name === 'check-links') {
+      renderLinksTool(bodyEl);
+    } else if (name === 'backups') {
+      renderBackupsTool(bodyEl);
+    }
+  }
+
+  /* ==================== Broken-link checker tool ==================== */
+  function renderLinksTool(bodyEl) {
+    bodyEl.innerHTML =
+      '<div class="admin-tool-card admin-card">' +
+      '<h2>Check links</h2>' +
+      '<p>Scans the content database for local file and page references, then compares each against the files on the server. Anything pointing to a file that is not present is reported as broken.</p>' +
+      '<div class="admin-tool-actions">' +
+      '<button class="btn btn-primary" id="links-run" type="button">Run check</button>' +
+      '</div>' +
+      '<div id="links-result"></div>' +
+      '</div>';
+    $('#links-run').addEventListener('click', async () => {
+      const btn = $('#links-run');
+      const out = $('#links-result');
+      btn.disabled = true;
+      out.innerHTML = '<p class="admin-editor-desc">Scanning…</p>';
+      try {
+        const res = await api('/api/check-links');
+        if (!res.missing.length) {
+          out.innerHTML = '<p class="ok-text">✓ No broken local links — all ' + res.checked + ' file references exist on the server.</p>';
+        } else {
+          out.innerHTML =
+            '<p class="err-text">' + res.totalMissing + ' broken link(s) found out of ' + res.checked + ' checked.</p>' +
+            '<table class="admin-links-table"><thead><tr><th>Section</th><th>Reference</th></tr></thead><tbody>' +
+            res.missing.map(m => '<tr><td>' + esc(m.section) + '</td><td><code>' + esc(m.url) + '</code></td></tr>').join('') +
+            '</tbody></table>' +
+            '<p class="admin-editor-desc">Tip: upload the missing file in the Uploads tool, or fix the reference in its section.</p>';
+        }
+      } catch (e) { out.innerHTML = '<p class="err-text">' + esc(e.message) + '</p>'; }
+      finally { btn.disabled = false; }
+    });
+  }
+
+  /* ==================== Backups & restore tool ==================== */
+  function renderBackupsTool(bodyEl) {
+    bodyEl.innerHTML =
+      '<div class="admin-tool-card admin-card">' +
+      '<h2>Backups & restore</h2>' +
+      '<p>Every time you save a section, the server stores a timestamped backup in <code>server/data/backups/</code> (the latest 20 are kept automatically). Restore any of them to roll back to an earlier version — the current content is itself backed up first.</p>' +
+      '<div class="admin-tool-actions">' +
+      '<button class="btn btn-primary" id="backup-now" type="button">Back up now</button>' +
+      '</div>' +
+      '<div id="backups-error" class="form-error" hidden></div>' +
+      '<div id="backups-list"><p class="admin-editor-desc">Loading…</p></div>' +
+      '</div>';
+    $('#backup-now').addEventListener('click', async () => {
+      try { await api('/api/backups', 'POST', {}); toast('Backup created'); loadBackupsList(); }
+      catch (e) { toast(e.message, true); }
+    });
+    loadBackupsList();
+  }
+
+  async function loadBackupsList() {
+    const listEl = $('#backups-list');
+    const errEl = $('#backups-error');
+    errEl.hidden = true;
+    try {
+      const res = await api('/api/backups');
+      const backups = res.backups || [];
+      const keep = res.keep || 20;
+      if (!backups.length) {
+        listEl.innerHTML = '<p class="admin-editor-desc">No backups yet. They are created automatically whenever you save a section.</p>';
+        return;
+      }
+      listEl.innerHTML =
+        '<p class="admin-editor-desc">' + backups.length + ' backup(s) on disk (' + keep + ' kept).</p>' +
+        '<table class="admin-links-table"><thead><tr><th>Backup</th><th>Size</th><th>Created</th><th></th></tr></thead><tbody>' +
+        backups.map(b =>
+          '<tr><td><code>' + esc(b.file) + '</code></td><td>' + esc(formatBytes(b.size)) + '</td><td>' + esc((b.mtime || '').replace('T', ' ').slice(0, 19)) + '</td>' +
+          '<td class="admin-backup-actions">' +
+          '<a class="btn btn-ghost btn-sm" href="/api/backup?file=' + encodeURIComponent(b.file) + '" download="' + esc(b.file) + '">Download</a>' +
+          '<button class="btn btn-ghost btn-sm admin-backup-restore" data-file="' + esc(b.file) + '" type="button">Restore</button>' +
+          '</td></tr>'
+        ).join('') +
+        '</tbody></table>';
+      listEl.querySelectorAll('.admin-backup-restore').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const file = btn.dataset.file;
+          const ok = await confirmDialog('Restore content from ' + file + '? The current content will be kept in a new backup before restoring.', 'Restore backup');
+          if (!ok) return;
+          try {
+            const res = await api('/api/backups/restore', 'POST', { file });
+            content = res.value;
+            buildSectionNav();
+            doOpenSection(Object.keys(content)[0]);
+            toast('Restored from ' + file);
+          } catch (e) { toast(e.message, true); }
+        });
+      });
+    } catch (e) {
+      errEl.textContent = e.message;
+      errEl.hidden = false;
+      listEl.innerHTML = '';
     }
   }
 

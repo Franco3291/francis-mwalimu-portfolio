@@ -56,6 +56,13 @@ async function main() {
 
   const robots = await req('GET', '/robots.txt');
   check('robots.txt disallows /admin.html & /api/', robots.status === 200 && robots.text.includes('Disallow: /admin.html') && robots.text.includes('Disallow: /api/'), 'status=' + robots.status);
+  check('robots.txt exposes live sitemap URL', /Sitemap: https?:\/\/.+sitemap\.xml/.test(robots.text), 'body=' + robots.text.slice(0, 120));
+
+  const smap = await req('GET', '/sitemap.xml');
+  check('GET /sitemap.xml served', smap.status === 200 && smap.text.includes('<urlset'), 'status=' + smap.status);
+
+  const feed = await req('GET', '/feed.xml');
+  check('GET /feed.xml served', feed.status === 200 && feed.text.includes('<feed '), 'status=' + feed.status);
 
   console.log('\n[auth]');
   const meAnon = await req('GET', '/api/auth/me', undefined, false);

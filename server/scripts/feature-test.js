@@ -2,6 +2,8 @@
 /* Temporary feature test: uploads (magic validation, list, serve, delete),
    contact & feedback through a fake SMTP inbox, email config/test, footer admin link. */
 const net = require('net');
+const http = require('http');
+const fs = require('fs');
 const { spawn } = require('child_process');
 const path = require('path');
 
@@ -81,6 +83,17 @@ function decodeSubject(mail) {
   return raw ? raw[1] : '';
 }
 
+// Raw HTTP request: keeps response headers (undici fetch hides Content-Encoding).
+function rawGet(pathname, headers) {
+  return new Promise((resolve, reject) => {
+    http.get(BASE + pathname, { headers }, res => {
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
+    }).on('error', reject);
+  });
+}
+
 async function upload(folder, fileBuf, filename, type) {
   const fd = new FormData();
   fd.append('folder', folder);
@@ -96,7 +109,8 @@ async function upload(folder, fileBuf, filename, type) {
   await new Promise(r => setTimeout(r, 300));
   console.log('SMTP test inbox on port ' + smtpPort);
 
-  const child = spawn('node', ['server/server.js'], { cwd: path.join(__dirname), stdio: 'ignore' });
+  const ROOT_DIR = path.join(__dirname, '..', '..');
+  const child = spawn('node', [path.join(ROOT_DIR, 'server', 'server.js')], { cwd: ROOT_DIR, stdio: 'ignore' });
   await new Promise(resolve => {
     const t0 = Date.now();
     const poll = async () => {
@@ -117,6 +131,7 @@ async function upload(folder, fileBuf, filename, type) {
   check('project detail still served', (await req('GET', '/project.html?id=ai-content-detection')).status === 200);
 
   console.log('\n[uploads]');
+  const preUploadUrls = new Set((await req('GET', '/api/uploads')).data.files.map(f => f.url));
   const badFolder = await upload('nope', PNG, 'x.png', 'image/png');
   check('bad folder -> 400', badFolder.status === 400, 'status=' + badFolder.status);
 
@@ -191,13 +206,84 @@ console.log('\n[email]');
   }
   check('contact rate limit -> 429 after quota', rlStatus === 429, 'last=' + rlStatus);
 
+  console.log('\n[seo & caching]');
+  const sitemap = await fetch(BASE + '/sitemap.xml');
+  const sitemapText = await sitemap.text();
+  check('GET /sitemap.xml -> 200 + xml', sitemap.status === 200 && /<urlset/.test(sitemapText) && /<loc>/.test(sitemapText), 'status=' + sitemap.status);
+  check('sitemap content-type xml', (sitemap.headers.get('content-type') || '').indexOf('xml') > -1, sitemap.headers.get('content-type'));
+  check('sitemap lists project pages', sitemapText.indexOf('project.html?id=') > -1);
+  check('sitemap lists article pages', sitemapText.indexOf('article.html?id=') > -1);
+
+  const feed = await fetch(BASE + '/feed.xml');
+  const feedText = await feed.text();
+  check('GET /feed.xml -> 200 Atom', feed.status === 200 && /<feed /.test(feedText) && /<entry>/.test(feedText), 'status=' + feed.status);
+  check('feed has updated timestamp', /<updated>/.test(feedText));
+  check('feed links to blog posts', feedText.indexOf('article.html?id=blog-') > -1);
+
+  const cssAnon = await rawGet('/css/style.css', {});
+  check('static served with ETag', cssAnon.status === 200 && /^"/.test(cssAnon.headers.etag || ''), 'etag=' + cssAnon.headers.etag);
+  const css304 = await rawGet('/css/style.css', { 'If-None-Match': cssAnon.headers.etag });
+  check('If-None-Match -> 304', css304.status === 304, 'status=' + css304.status);
+
+  const gz = await rawGet('/css/style.css', { 'Accept-Encoding': 'gzip' });
+  check('gzip: Content-Encoding= gzip', gz.headers['content-encoding'] === 'gzip', 'enc=' + gz.headers['content-encoding']);
+  check('gzip: Vary includes Accept-Encoding', /accept-encoding/i.test(gz.headers.vary || ''), 'vary=' + gz.headers.vary);
+  check('gzip: body is deflated (magic 1f 8b)', gz.body.length > 2 && gz.body[0] === 0x1f && gz.body[1] === 0x8b);
+
+  const rootRaw = await rawGet('/', {});
+  check('security headers: nosniff', rootRaw.headers['x-content-type-options'] === 'nosniff', rootRaw.headers['x-content-type-options']);
+  check('security headers: X-Frame-Options DENY', rootRaw.headers['x-frame-options'] === 'DENY');
+  check('security headers: CSP present', /default-src 'self'/.test(rootRaw.headers['content-security-policy'] || ''), rootRaw.headers['content-security-policy']);
+  check('security headers: Referrer-Policy', rootRaw.headers['referrer-policy'] === 'strict-origin-when-cross-origin');
+
+  console.log('\n[backups & links]');
+  const linksAnon = await req('GET', '/api/check-links', undefined, false);
+  check('check-links requires auth', linksAnon.status === 401, 'status=' + linksAnon.status);
+  const links = await req('GET', '/api/check-links');
+  check('check-links -> 200', links.status === 200 && Array.isArray(links.data.missing), 'status=' + links.status);
+  check('check-links scanned > 0 references', typeof links.data.checked === 'number' && links.data.checked > 0, 'checked=' + links.data.checked);
+
+  const preBackups = (await req('GET', '/api/backups')).data.backups.map(b => b.file);
+  const backupsAnon = await req('GET', '/api/backups', undefined, false);
+  check('backups list requires auth', backupsAnon.status === 401, 'status=' + backupsAnon.status);
+  const mk = await req('POST', '/api/backups', {});
+  check('create backup -> 200 + file', mk.status === 200 && /^backup-.*\.json$/.test(mk.data.file), 'file=' + mk.data.file);
+  const listedBackups = await req('GET', '/api/backups');
+  check('backup appears in list', listedBackups.data.backups.some(b => b.file === mk.data.file));
+
+  const restoreAnon = await req('POST', '/api/backups/restore', { file: 'backup-x.json' }, false);
+  check('restore requires auth', restoreAnon.status === 401, 'status=' + restoreAnon.status);
+  const restoreTraversal = await req('POST', '/api/backups/restore', { file: '../nope.json' });
+  check('restore rejects traversal filename', restoreTraversal.status === 400, 'status=' + restoreTraversal.status);
+  const restoreBad = await req('POST', '/api/backups/restore', { file: 'backup-does-not-exist.json' });
+  check('restore rejects unknown backup', restoreBad.status === 400, 'status=' + restoreBad.status);
+
+  const contentPre = (await req('GET', '/api/content')).data;
+  const restoreOk = await req('POST', '/api/backups/restore', { file: mk.data.file });
+  check('restore own backup -> 200', restoreOk.status === 200, 'status=' + restoreOk.status);
+  const contentPost = (await req('GET', '/api/content')).data;
+  check('content is a valid database after restore', !!(contentPost.personal && contentPost.personal.name), 'name=' + (contentPost.personal && contentPost.personal.name));
+  check('restoring a snapshot preserves its content', contentPre.personal && contentPre.personal.name === contentPost.personal.name);
+
+  const dl = await rawGet('/api/backup?file=' + encodeURIComponent(mk.data.file), { Cookie: cookie });
+  check('download specific backup -> json', dl.status === 200 && (dl.headers['content-type'] || '').indexOf('application/json') > -1, 'status=' + dl.status + ' ct=' + dl.headers['content-type']);
+  const dlBad = await rawGet('/api/backup?file=' + encodeURIComponent('../evil.json'), { Cookie: cookie });
+  check('download rejects traversal filename', dlBad.status === 400, 'status=' + dlBad.status);
+
+  // Remove only the backups this test created so the directory stays tidy.
+  const postBackups = (await req('GET', '/api/backups')).data.backups.map(b => b.file);
+  postBackups.filter(f => preBackups.indexOf(f) === -1).forEach(f => {
+    try { fs.unlinkSync(path.join(ROOT_DIR, 'server', 'data', 'backups', f)); } catch (e) { /* ignore */ }
+  });
+
   /* ---------- cleanup ---------- */
   await req('DELETE', '/api/upload?url=' + encodeURIComponent(vidUrl));
   await req('DELETE', '/api/upload?url=' + encodeURIComponent(certUrl));
   await req('POST', '/api/email/config', { enabled: false, host: '', port: 465, secure: true, user: '', pass: '', from: '', to: '' });
 
   const leftover = await req('GET', '/api/uploads');
-  check('no test files left behind', !leftover.data.files.some(f => f.url.startsWith('/assets/uploads/')), JSON.stringify(leftover.data.files));
+  const newestFiles = leftover.data.files.filter(f => !preUploadUrls.has(f.url));
+  check('no test files left behind', newestFiles.length === 0, JSON.stringify(newestFiles));
 
   child.kill();
   smtpServer.close();

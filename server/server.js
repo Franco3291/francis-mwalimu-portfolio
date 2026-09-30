@@ -6,6 +6,8 @@
    Public routes
      GET  /api/health          health check
      GET  /api/content         full content (used by the public site)
+     GET  /sitemap.xml         dynamic XML sitemap from the content database
+     GET  /feed.xml            Atom feed from the blog posts
    Admin routes (session cookie required)
      POST /api/auth/login      { username, password } -> sets cookie
      POST /api/auth/logout
@@ -16,17 +18,66 @@
      GET  /api/export                    download site-ready js/data.js
      GET  /api/backup                    download raw JSON backup
      POST /api/reset                     restore content from bundled js/data.js
+     GET  /api/check-links               scan content URLs for missing files
+     GET  /api/backups                   list automatic backups
+     POST /api/backups                   create a backup now
+     POST /api/backups/restore           restore a backup by file name
    ========================================================================== */
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const zlib = require('zlib');
 const { readConfig, writeConfig, hashPassword, verifyPassword } = require('./users');
-const { ROOT, readDatabase, writeDatabase, initDatabase, exportDataJs, extractFromDataJs } = require('./db');
+const { ROOT, readDatabase, writeDatabase, initDatabase, exportDataJs, extractFromDataJs, createBackup, listBackups, readBackup, BACKUP_KEEP } = require('./db');
 const { sendMail, escHtml } = require('./email');
 
 const config = readConfig();
 const STATIC_ROOT = ROOT;
+
+/* ==================== Security headers ==================== */
+const SECURITY_HEADERS = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), gyroscope=(), payment=(), usb=()',
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' data: https://fonts.gstatic.com",
+    "img-src 'self' data: blob: http: https:",
+    "connect-src 'self'",
+    "media-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'"
+  ].join('; '),
+  'Cross-Origin-Opener-Policy': 'same-origin'
+};
+function applySecurityHeaders(res) {
+  for (const k in SECURITY_HEADERS) res.setHeader(k, SECURITY_HEADERS[k]);
+}
+
+/* ==================== URL helpers ==================== */
+// Absolute base URL derived from the request (proxy friendly). Used by the
+// dynamic sitemap and Atom feed.
+function hostBaseUrl(req) {
+  const fwd = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const secure = config.secureCookies || fwd === 'https';
+  return (secure ? 'https' : 'http') + '://' + (req.headers.host || ('localhost:' + config.port));
+}
+
+// Minimal XML escaping for values written into sitemap/feed documents.
+function escXml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 /* ==================== Sessions (in-memory) ==================== */
 const sessions = new Map(); // token -> { username, expires }
@@ -243,6 +294,33 @@ function contentType(filePath) {
   return MIME[path.extname(filePath).toLowerCase()] || 'application/octet-stream';
 }
 
+// Text-like files are gzip-compressed on the fly. Binary assets (images,
+// videos, fonts, PDFs) are already compressed and are served unchanged.
+function isCompressible(filePath) {
+  const ct = contentType(filePath).split(';')[0];
+  return ct === 'text/html' || ct === 'text/css' || ct === 'text/javascript' ||
+    ct === 'application/json' || ct === 'application/xml' || ct === 'image/svg+xml' ||
+    ct === 'application/manifest+json' || ct === 'text/markdown' || ct === 'text/plain';
+}
+
+const gzipCache = new Map(); // fullPath|size|mtimeMs -> { buffer, hits }
+function gzipFor(fullPath, stat) {
+  const key = fullPath + '|' + stat.size + '|' + stat.mtimeMs;
+  const hit = gzipCache.get(key);
+  if (hit) { hit.hits += 1; return hit.buffer; }
+  const buffer = zlib.gzipSync(fs.readFileSync(fullPath), { level: 6 });
+  if (gzipCache.size > 256) { // crude LRU: drop the coldest half
+    const entries = Array.from(gzipCache.entries()).sort((a, b) => a[1].hits - b[1].hits);
+    entries.slice(0, Math.floor(entries.length / 2)).forEach(([k]) => gzipCache.delete(k));
+  }
+  gzipCache.set(key, { buffer, hits: 1 });
+  return buffer;
+}
+
+function etagFor(stat) {
+  return '"' + stat.size.toString(16) + '-' + stat.mtimeMs.toString(16) + '"';
+}
+
 function serveStatic(req, res, pathname) {
   const target = pathname === '/' ? '/index.html' : pathname;
   let fullPath;
@@ -256,19 +334,183 @@ function serveStatic(req, res, pathname) {
   }
   fs.stat(fullPath, (err, stat) => {
     if (err || !stat.isFile()) return sendError(res, 404, 'not found');
-    if (req.method === 'HEAD') {
-      res.writeHead(200, { 'Content-Type': contentType(fullPath), 'Content-Length': stat.size });
+    const etag = etagFor(stat);
+    const headers = {
+      'Content-Type': contentType(fullPath),
+      'ETag': etag,
+      'Last-Modified': stat.mtime.toUTCString(),
+      'Cache-Control': path.extname(fullPath).toLowerCase() === '.html' ? 'no-cache' : 'public, max-age=3600'
+    };
+
+    // Conditional GET -> 304 Not Modified
+    const ifNoneMatch = req.headers['if-none-match'];
+    if (ifNoneMatch && String(ifNoneMatch).split(',').map(s => s.trim()).indexOf(etag) !== -1) {
+      res.writeHead(304, { 'ETag': etag, 'Cache-Control': headers['Cache-Control'] });
       return res.end();
     }
+
+    const acceptsGzip = /(^|,)\s*gzip\s*(,|$)/.test(req.headers['accept-encoding'] || '') && isCompressible(fullPath);
+    if (acceptsGzip) {
+      const gz = gzipFor(fullPath, stat);
+      headers['Content-Encoding'] = 'gzip';
+      headers['Vary'] = 'Accept-Encoding';
+      headers['Content-Length'] = gz.length;
+      if (req.method === 'HEAD') { res.writeHead(200, headers); return res.end(); }
+      res.writeHead(200, headers);
+      return res.end(gz);
+    }
+
+    headers['Content-Length'] = stat.size;
+    if (req.method === 'HEAD') { res.writeHead(200, headers); return res.end(); }
     const stream = fs.createReadStream(fullPath);
-    const isHtml = path.extname(fullPath).toLowerCase() === '.html';
-    res.writeHead(200, {
-      'Content-Type': contentType(fullPath),
-      'Content-Length': stat.size,
-      'Cache-Control': isHtml ? 'no-cache' : 'public, max-age=3600'
-    });
+    res.writeHead(200, headers);
     stream.pipe(res);
   });
+}
+
+/* ==================== Dynamic sitemap & Atom feed ==================== */
+// Public-facing detail pages included in the sitemap.
+const SITEMAP_PAGES = [
+  '', 'about.html', 'skills.html', 'projects.html', 'project.html',
+  'certifications.html', 'blog.html', 'article.html', 'networking.html',
+  'cybersecurity.html', 'experience.html', 'services.html', 'testimonials.html',
+  'live-projects.html', 'resources.html', 'github.html', 'contact.html'
+];
+
+function toIsoDate(value) {
+  const d = new Date(value);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+function buildSitemap(req) {
+  const base = hostBaseUrl(req);
+  const db = readDatabase();
+  const urls = [];
+
+  SITEMAP_PAGES.forEach(page => {
+    urls.push('<url><loc>' + escXml(base + '/' + page) + '</loc></url>');
+  });
+
+  (Array.isArray(db.projects) ? db.projects : []).forEach(p => {
+    if (p && p.id) urls.push('<url><loc>' + escXml(base + '/project.html?id=' + p.id) + '</loc></url>');
+  });
+
+  (Array.isArray(db.blogPosts) ? db.blogPosts : []).forEach(post => {
+    if (post && post.id) urls.push('<url><loc>' + escXml(base + '/article.html?id=' + post.id) + '</loc></url>');
+  });
+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    urls.join('\n') + '\n</urlset>\n';
+}
+
+function buildFeed(req) {
+  const base = hostBaseUrl(req);
+  const db = readDatabase();
+  const posts = (Array.isArray(db.blogPosts) ? db.blogPosts : []).slice()
+    .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  const updated = posts.reduce((latest, p) => {
+    const iso = toIsoDate(p.date);
+    return iso && (!latest || iso > latest) ? iso : latest;
+  }, null) || new Date().toISOString();
+
+  const entries = posts.map(p => {
+    const link = base + '/article.html?id=' + encodeURIComponent(p.id);
+    const iso = toIsoDate(p.date) || new Date().toISOString();
+    return '  <entry>\n' +
+      '    <title>' + escXml(p.title) + '</title>\n' +
+      '    <link href="' + escXml(link) + '"/>\n' +
+      '    <id>' + escXml(link) + '</id>\n' +
+      '    <updated>' + iso + '</updated>\n' +
+      (p.category ? '    <category term="' + escXml(p.category) + '"/>\n' : '') +
+      '    <summary>' + escXml(p.excerpt || '') + '</summary>\n' +
+      '  </entry>';
+  }).join('\n');
+
+  return '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<feed xmlns="http://www.w3.org/2005/Atom">\n' +
+    '  <title>Francis Mwalimu — Blog</title>\n' +
+    '  <link rel="alternate" href="' + escXml(base + '/') + '"/>\n' +
+    '  <link rel="self" href="' + escXml(base + '/feed.xml') + '"/>\n' +
+    '  <id>' + escXml(base + '/feed.xml') + '</id>\n' +
+    '  <updated>' + updated + '</updated>\n' +
+    '  <author><name>Francis Mwalimu</name></author>\n' +
+    entries + '\n</feed>\n';
+}
+
+function serveDocument(req, res, mime, body) {
+  if (req.method === 'HEAD') {
+    res.writeHead(200, { 'Content-Type': mime, 'Content-Length': Buffer.byteLength(body) });
+    return res.end();
+  }
+  res.writeHead(200, { 'Content-Type': mime, 'Content-Length': Buffer.byteLength(body) });
+  return res.end(body);
+}
+
+function serveSitemap(req, res) {
+  return serveDocument(req, res, 'application/xml; charset=utf-8', buildSitemap(req));
+}
+function serveFeed(req, res) {
+  return serveDocument(req, res, 'application/atom+xml; charset=utf-8', buildFeed(req));
+}
+
+// robots.txt with a live sitemap URL substituted from the request.
+function serveRobots(req, res) {
+  let template;
+  try {
+    template = fs.readFileSync(path.join(ROOT, 'robots.txt'), 'utf8');
+  } catch (e) {
+    return sendError(res, 404, 'not found');
+  }
+  const body = template.replace('__SITEMAP_URL__', hostBaseUrl(req) + '/sitemap.xml');
+  return serveDocument(req, res, 'text/plain; charset=utf-8', body);
+}
+
+/* ==================== Admin: broken-link checker ==================== */
+// Recursively collect local (non-external) paths from the content database.
+function collectLocalUrls(value, section, out, seen) {
+  if (value == null || typeof value === 'boolean' || typeof value === 'number') return;
+  if (typeof value === 'string') {
+    const s = value.trim();
+    if (!s || s.charAt(0) === '#' || /^(https?:)?\/\//i.test(s) || /^data:/i.test(s) ||
+        /^(mailto:|tel:|javascript:)/i.test(s) || s.indexOf('://') !== -1) return;
+    const bare = s.replace(/^\.?\//, '');
+    const m = bare.match(/^[^?#]*/);
+    if (!m[0] || !m[0].includes('.') || m[0].endsWith('/')) return; // folders / nav
+    const key = bare;
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push({ url: s, section });
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    value.forEach(v => collectLocalUrls(v, section, out, seen));
+    return;
+  }
+  Object.keys(value).forEach(k => collectLocalUrls(value[k], section, out, seen));
+}
+
+// True when the local path resolves to an existing file inside STATIC_ROOT.
+function fileExistsLocal(relPath) {
+  let full;
+  try {
+    full = path.normalize(path.join(STATIC_ROOT, decodeURIComponent(relPath.split('?')[0])));
+  } catch (e) {
+    return false;
+  }
+  if (full !== STATIC_ROOT && !full.startsWith(STATIC_ROOT + path.sep)) return false;
+  try { return fs.existsSync(full) && fs.statSync(full).isFile(); } catch (e) { return false; }
+}
+
+function checkContentLinks() {
+  const db = readDatabase();
+  const out = [];
+  const seen = new Set();
+  Object.keys(db).forEach(section => collectLocalUrls(db[section], section, out, seen));
+  const missing = out.filter(entry => !fileExistsLocal(entry.url));
+  return { checked: out.length, missing, totalMissing: missing.length };
 }
 
 /* ==================== API routing ==================== */
@@ -286,13 +528,25 @@ async function handleApi(req, res, url) {
     return sendJson(res, 200, readDatabase());
   }
 
-  // Admin: download raw JSON backup
+  // Admin: download raw JSON backup (optionally a specific automatic backup by name)
   if (method === 'GET' && pathname === '/api/backup') {
     if (!auth(req).ok) return sendError(res, 401, 'unauthorized');
-    const body = JSON.stringify(readDatabase(), null, 2) + '\n';
+    let body;
+    let filename = 'portfolio-backup.json';
+    const fileParam = url.searchParams.get('file');
+    if (fileParam) {
+      try {
+        body = JSON.stringify(readBackup(fileParam), null, 2) + '\n';
+        filename = fileParam;
+      } catch (e) {
+        return sendError(res, 400, e.message);
+      }
+    } else {
+      body = JSON.stringify(readDatabase(), null, 2) + '\n';
+    }
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="portfolio-backup.json"',
+      'Content-Disposition': 'attachment; filename="' + filename + '"',
       'Content-Length': Buffer.byteLength(body)
     });
     return res.end(body);
@@ -403,6 +657,46 @@ async function handleApi(req, res, url) {
     if (!a.ok) return sendError(res, 401, 'unauthorized');
     initDatabase({ force: true });
     return sendJson(res, 200, { ok: true, value: readDatabase() });
+  }
+
+  // Admin: broken-link checker (content URLs vs files on disk)
+  if (method === 'GET' && pathname === '/api/check-links') {
+    const a = auth(req);
+    if (!a.ok) return sendError(res, 401, 'unauthorized');
+    return sendJson(res, 200, Object.assign({ ok: true }, checkContentLinks()));
+  }
+
+  // Admin: list automatic backups
+  if (method === 'GET' && pathname === '/api/backups') {
+    const a = auth(req);
+    if (!a.ok) return sendError(res, 401, 'unauthorized');
+    return sendJson(res, 200, { ok: true, keep: BACKUP_KEEP, backups: listBackups() });
+  }
+
+  // Admin: create a backup now
+  if (method === 'POST' && pathname === '/api/backups') {
+    const a = auth(req);
+    if (!a.ok) return sendError(res, 401, 'unauthorized');
+    const file = createBackup(readDatabase());
+    return sendJson(res, 200, { ok: true, file });
+  }
+
+  // Admin: restore a backup by file name
+  if (method === 'POST' && pathname === '/api/backups/restore') {
+    const a = auth(req);
+    if (!a.ok) return sendError(res, 401, 'unauthorized');
+    const body = await readJsonBody(req, 16 * 1024).catch(() => null);
+    if (!body || typeof body.file !== 'string' || !/^backup-[A-Za-z0-9._-]+\.json$/.test(body.file)) {
+      return sendError(res, 400, 'a valid backup file name is required');
+    }
+    let restored;
+    try {
+      restored = readBackup(body.file);
+    } catch (e) {
+      return sendError(res, 400, e.message);
+    }
+    writeDatabase(restored); // writes a fresh backup of the pre-restore state too
+    return sendJson(res, 200, { ok: true, file: body.file, value: readDatabase() });
   }
 
   // Admin: upload a file (multipart: field "folder" + file part)
@@ -574,7 +868,16 @@ const server = http.createServer(async (req, res) => {
   catch (e) { return sendError(res, 400, 'bad request'); }
   const pathname = url.pathname;
 
+  applySecurityHeaders(res);
+
   if (pathname === '/favicon.ico') { res.writeHead(204); return res.end(); }
+
+  // Public: dynamic sitemap, Atom feed & robots.txt
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    if (pathname === '/sitemap.xml') return serveSitemap(req, res);
+    if (pathname === '/feed.xml') return serveFeed(req, res);
+    if (pathname === '/robots.txt') return serveRobots(req, res);
+  }
 
   if (pathname.startsWith('/api/')) {
     try {
@@ -588,6 +891,34 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, pathname);
   sendError(res, 405, 'method not allowed');
+});
+
+/* ==================== Graceful shutdown ==================== */
+let shuttingDown = false;
+function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log('\n[' + signal + '] shutting down…');
+  server.close(() => {
+    console.log('[server] closed gracefully');
+    process.exit(0);
+  });
+  // Force exit if keep-alive connections hang past the grace period.
+  setTimeout(() => {
+    console.log('[server] forcing exit after timeout');
+    process.exit(0);
+  }, 5000).unref();
+}
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+
+server.on('error', err => {
+  if (err.code === 'EADDRINUSE') {
+    console.error('Port ' + config.port + ' is already in use. Stop the other server or change config.port.');
+  } else {
+    console.error('Server error:', err.message);
+  }
+  process.exit(1);
 });
 
 server.listen(config.port, config.host, () => {

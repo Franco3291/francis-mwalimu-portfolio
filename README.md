@@ -16,11 +16,11 @@ Built with plain HTML, CSS, and JavaScript — no frameworks, no build step, no 
 - **Responsive navigation** — mobile hamburger menu, sticky header with scroll state, and skip-to-content link for keyboard users.
 - **Interactive elements** — scroll‑reveal animations, back‑to‑top button, searchable/filterable project & certification grids, animated loading overlay.
 - **Detail pages via query strings** — individual project and article pages rendered from `id` parameters (`project.html?id=...`, `article.html?id=...`).
-- **Contact & feedback forms** — client‑side validation plus a honeypot field for spam protection. Falls back to `mailto:` when no backend endpoint is configured.
+- **Contact & feedback forms** — client‑side validation plus a honeypot field for spam protection. When the Node backend is running, messages are rate-limited and delivered over SMTP; otherwise they fall back to `mailto:`.
 - **SEO & social ready** — per‑page meta tags, Open Graph, Twitter cards, JSON‑LD structured data, `sitemap.xml`, and `robots.txt`.
 - **Accessibility** — semantic markup, ARIA labels, keyboard navigation, visible focus states, and support for `prefers-reduced-motion`.
 - **GitHub integration** — a dedicated page that showcases selected repositories and open‑source work.
-- **Admin panel** — a password‑protected Node.js backend (`/admin.html`) with a form & JSON editor for every content section, backups, reset, and one-click export of the static `data.js`.
+- **Admin panel** — a password‑protected Node.js backend (`/admin.html`) with a form & JSON editor for every content section, file uploads (images/video/PDF with magic-byte validation), SMTP email configuration, backups, reset, and one-click export of the static `data.js`.
 
 ---
 
@@ -73,15 +73,19 @@ francis-mwalimu-portfolio/
 ├── server/
 │   ├── server.js           # Node backend: static site + admin API
 │   ├── users.js            # Admin credentials (scrypt hash)
+│   ├── email.js            # Dependency-free SMTP client (STARTTLS)
 │   ├── db.js               # JSON content database helpers
 │   ├── data/
 │   │   └── content.json    # Live content database (managed via admin)
 │   └── scripts/
 │       ├── init-data.js    # Extract js/data.js -> content.json
 │       ├── set-password.js # Set/change the admin password
-│       └── smoke-test.js   # API smoke tests
+│       ├── smoke-test.js   # API smoke tests
+│       ├── feature-test.js # End-to-end test (uploads + email + limits)
+│       └── test-all.js     # npm test runner (smoke + feature suites)
 ├── assets/
-│   └── images/             # Profile photo, OG image, etc.
+│   ├── images/             # Profile photo, OG image, etc.
+│   └── uploads/            # Files uploaded via the admin panel (git-ignored)
 ├── docs/
 │   └── SETUP.md            # Detailed setup & deployment notes
 ├── robots.txt              # Crawler rules + sitemap reference
@@ -129,6 +133,14 @@ Then open:
 
 > **Tip:** Avoid opening `index.html` directly via `file://` — some features (such as dynamic detail pages and asset paths) rely on being served over HTTP.
 
+### Tests
+
+```bash
+npm test   # runs the smoke suite (API) + the feature suite (uploads, email, caching, backups, links)
+```
+
+Run `node server/scripts/smoke-test.js` to check an already-running server, or `node server/scripts/feature-test.js` by itself for the end-to-end suite (it starts its own server plus a fake SMTP inbox). Requires the admin credentials from `server/config.json` (`admin` / `changeme-123` by default).
+
 ---
 
 ## ⚙️ Configuration
@@ -168,6 +180,7 @@ To update the site, edit the relevant section in `js/data.js` — or use the adm
   - Rejects honeypot submissions
   - Sanitizes/screens content
   - Sends mail **without exposing API keys or credentials to the browser**
+- **When running on the Node backend**, the site can also deliver submissions directly through the built-in SMTP client (`server/email.js`). Save your provider's settings under **Admin → Email** (or `POST /api/email/config`), and contact/feedback messages are sent with a honeypot check and per-sender rate limiting (5 messages/hour/IP) — no third-party service keys in the browser.
 
 ---
 
@@ -199,6 +212,8 @@ Open `http://localhost:3000/admin.html` and sign in.
 - **Download backup** — a raw JSON snapshot of the database.
 - **Reset** — restore the database from the bundled `js/data.js`.
 - **Change password** — right from the panel, no CLI needed.
+- **Upload files** — attach images (PNG/JPEG/GIF/WebP), video (MP4), and PDFs into per-section folders. Files are validated by magic bytes (not browser MIME types), served under `/assets/uploads/`, and can be linked from any content field that accepts a URL (e.g. project video, certificate image).
+- **Configure email** — enter SMTP host/port/credentials and send a test message straight from the panel; delivery happens server-side so no credentials ever reach the browser.
 
 ### API overview
 
@@ -215,6 +230,14 @@ Open `http://localhost:3000/admin.html` and sign in.
 | GET | `/api/export` | Download site‑ready `data.js` |
 | GET | `/api/backup` | Download JSON backup |
 | POST | `/api/reset` | Restore from bundled `data.js` |
+| POST | `/api/upload` | Upload a file to a section (multipart, magic-byte checked, 60 MB max) |
+| GET | `/api/uploads` | List uploaded files |
+| DELETE | `/api/upload?url=...` | Delete an uploaded file |
+| GET | `/api/email/config` | Read SMTP settings (password masked; auth required) |
+| POST | `/api/email/config` | Save SMTP settings (auth required) |
+| POST | `/api/email/test` | Send a test email (auth required) |
+| POST | `/api/contact` | Deliver contact form via email (public; honeypot + 5/hour limit) |
+| POST | `/api/feedback` | Deliver feedback form via email (public; honeypot + 5/hour limit) |
 
 All write routes require a valid admin session. Login attempts are rate‑limited (5 tries / 15 minutes) and request bodies are size‑limited (3 MB).
 
@@ -270,8 +293,8 @@ For the live admin panel, deploy `server/server.js` to a Node‑capable platform
 ## 🧹 Maintenance
 
 - **Content:** edit `js/data.js`, or use the admin panel (which writes to `server/data/content.json`) — cards, filters, and detail pages render automatically. Run `node server/scripts/init-data.js` after you change `js/data.js` to refresh the database copy.
-- **Backups:** regularly download a backup from the admin panel (or copy `server/data/content.json`) — it's the live database on the Node host.
-- **Sitemap:** update `sitemap.xml` when adding indexable pages.
+- **Sitemap & feed:** the Node server generates `sitemap.xml` and `feed.xml` dynamically from the content database; when hosting statically, keep the committed copies in sync.
+- **Backups:** every content save on the Node host is automatically snapshotted to `server/data/backups/` (latest 20 kept) — manage them under **Admin → Backups & restore**. You can also download a raw backup any time from the panel or `GET /api/backup`.
 - **Downloads:** keep public downloads limited to approved documents; never host private files.
 - **Analytics:** prefer privacy‑preserving, aggregate analytics only. This static frontend intentionally does not include a client‑side analytics dashboard or credentials.
 - **Privacy policy:** keep the statements in `privacy.html` consistent with any third‑party services you add.
@@ -284,10 +307,11 @@ For the live admin panel, deploy `server/server.js` to a Node‑capable platform
 - [ ] Replace clearly marked placeholder education, experience, certification, testimonial, and project content.
 - [ ] Add approved files under `assets/docs/` and images under `assets/images/`.
 - [ ] Replace `example.com` with your real HTTPS domain in page metadata, `robots.txt`, `sitemap.xml`, and live‑project data.
-- [ ] Set `personal.contactFormEndpoint` to a trusted HTTPS form provider or your own server endpoint.
+- [ ] Set `personal.contactFormEndpoint` to a trusted HTTPS form provider or your own server endpoint — or enable the built-in SMTP delivery under Admin → Email.
 - [ ] Set a strong admin password (`node server/scripts/set-password.js`) and never commit `server/config.json`.
 - [ ] Run `node server/scripts/init-data.js` so the database matches the final `js/data.js`.
 - [ ] Replace placeholder verification URLs and credential IDs on certifications.
+- [ ] Decide how uploaded files are retained on a **static** host. Uploads live in `assets/uploads/` (git-ignored) and persist only on the Node host's disk — on a static host, treat uploads as local-only or commit the files you need manually.
 - [ ] Test all local links and assets after adding files.
 - [ ] Test keyboard navigation, reduced‑motion preference, mobile navigation, light/dark themes, and form validation.
 - [ ] Test on a clean HTTPS deployment before sharing the URL.

@@ -8,10 +8,13 @@
     "start": "node server/server.js",
     "init-data": "node server/scripts/init-data.js",
     "set-password": "node server/scripts/set-password.js",
-    "change-password": "node server/scripts/set-password.js"
+    "change-password": "node server/scripts/set-password.js",
+    "feature-test": "node server/scripts/feature-test.js",
+    "smoke-test": "node server/scripts/smoke-test.js",
+    "test": "node server/scripts/test-all.js"
   },
   "engines": {
-    "node": ">=14.0.0"
+    "node": ">=18.0.0"
   },
   "license": "UNLICENSED"
 }
