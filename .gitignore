@@ -11,6 +11,10 @@ assets/uploads/
 # Automatic content backups (managed at runtime with rotation)
 server/data/backups/
 
+# Local server run logs
+server.log
+server.err.log
+
 # OS
 .DS_Store
 Thumbs.db
