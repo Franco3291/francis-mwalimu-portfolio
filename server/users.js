@@ -39,15 +39,71 @@ function defaultConfig() {
 }
 
 function readConfig() {
+  let cfg;
   if (fs.existsSync(CONFIG_PATH)) {
     try {
-      const cfg = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
-      return Object.assign(defaultConfig(), cfg);
+      const file = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+      cfg = Object.assign(defaultConfig(), file);
     } catch (e) {
       console.error('[users] Could not parse config.json, using defaults:', e.message);
+      cfg = defaultConfig();
+    }
+  } else {
+    cfg = defaultConfig();
+  }
+  return applyEnvOverrides(cfg);
+}
+
+// Hosting platforms (e.g. Render) configure the server with environment
+// variables instead of server/config.json. Env values are applied on top of the
+// file (or defaults) so the same code runs locally and in production.
+function applyEnvOverrides(cfg) {
+  if (process.env.PORT) {
+    const n = Number(process.env.PORT);
+    if (Number.isInteger(n) && n > 0 && n < 65536) cfg.port = n;
+  }
+  if (process.env.HOST) cfg.host = String(process.env.HOST).trim();
+
+  // HTTPS termination happens at the platform proxy; mark cookies Secure.
+  if (process.env.SECURE_COOKIES !== undefined) {
+    cfg.secureCookies = /^(1|true|yes|on)$/i.test(String(process.env.SECURE_COOKIES).trim());
+  }
+  if (process.env.SESSION_TTL_HOURS) {
+    const n = Number(process.env.SESSION_TTL_HOURS);
+    if (Number.isInteger(n) && n > 0 && n <= 168) cfg.sessionTtlHours = n;
+  }
+
+  // Email delivery from env. Used when server/config.json is not kept (e.g. on
+  // ephemeral hosts): if SMTP_HOST is set it defines the effective SMTP config.
+  if (process.env.SMTP_HOST && String(process.env.SMTP_HOST).trim()) {
+    cfg.email.enabled = process.env.SMTP_TO ? true : cfg.email.enabled;
+    cfg.email.host = String(process.env.SMTP_HOST).trim();
+    if (process.env.SMTP_PORT) {
+      const n = Number(process.env.SMTP_PORT);
+      if (Number.isInteger(n) && n > 0 && n < 65536) cfg.email.port = n;
+    }
+    if (process.env.SMTP_SECURE !== undefined) {
+      cfg.email.secure = /^(1|true|yes|tls)$/i.test(String(process.env.SMTP_SECURE).trim());
+    }
+    if (process.env.SMTP_USER !== undefined) cfg.email.user = String(process.env.SMTP_USER);
+    if (process.env.SMTP_PASSWORD !== undefined) cfg.email.pass = String(process.env.SMTP_PASSWORD);
+    if (process.env.SMTP_FROM) cfg.email.from = String(process.env.SMTP_FROM).trim();
+    if (process.env.SMTP_TO) cfg.email.to = String(process.env.SMTP_TO).trim();
+  }
+
+  // First-boot admin account from env. Fresh deploys have no config.json, so
+  // the ADMIN_USERNAME/ADMIN_PASSWORD secret pair provisions the account once.
+  if (!cfg.credentials && process.env.ADMIN_USERNAME && process.env.ADMIN_PASSWORD) {
+    const name = String(process.env.ADMIN_USERNAME).trim();
+    const pass = String(process.env.ADMIN_PASSWORD);
+    if (name && pass.length >= 8) {
+      cfg.credentials = Object.assign({ username: name }, hashPassword(pass));
+      console.log('[users] Admin account seeded from ADMIN_USERNAME/ADMIN_PASSWORD env.');
+    } else {
+      console.error('[users] ADMIN_USERNAME/ADMIN_PASSWORD set but invalid (password needs >= 8 chars); admin NOT configured.');
     }
   }
-  return defaultConfig();
+  return cfg;
 }
 
 function writeConfig(cfg) {

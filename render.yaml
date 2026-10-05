@@ -1,0 +1,65 @@
+# ==============================================================================
+# Render Blueprint — Francis Mwalimu Portfolio (zero-dependency Node web service)
+#
+# HOW TO DEPLOY
+#   1. Push this repo to GitHub.
+#   2. Render Dashboard -> New -> Blueprint -> connect the GitHub repo.
+#   3. Render reads this render.yaml, prompts for the "sync: false" secrets
+#      (ADMIN_USERNAME, ADMIN_PASSWORD), and creates the web service.
+#   4. Open the service's onrender.com URL (https). Done.
+#
+# DATA PERSISTENCE (read before deploying)
+#   - plan: free  -> ephemeral filesystem. Admin edits & uploads are LOST on
+#     restart/redeploy; the content DB is re-seeded from js/data.js at boot.
+#     Perfect for trying it out; not for keeping admin changes.
+#   - To keep admin edits + uploads across restarts: set `plan: starter` (paid)
+#     and uncomment the `disk:` block below. Render mounts the disk at
+#     /var/data, where PORTFOLIO_DATA_DIR and PORTFOLIO_UPLOAD_DIR point.
+#
+# SMTP (contact & feedback forms): uncomment the SMTP_* env vars and supply
+# them at creation (secrets), or configure later under Admin -> Email settings.
+# ==============================================================================
+services:
+  - type: web
+    name: francis-mwalimu-portfolio
+    runtime: node
+    region: oregon            # or frankfurt / singapore / ohio / virginia
+    plan: free                # switch to "starter" when you attach the disk
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: SECURE_COOKIES
+        value: "true"
+      - key: PORTFOLIO_DATA_DIR
+        value: /var/data/db
+      - key: PORTFOLIO_UPLOAD_DIR
+        value: /var/data/uploads
+      # Admin account — created automatically on first boot from these secrets.
+      # Render asks for a value for each "sync: false" key during creation.
+      - key: ADMIN_USERNAME
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Optional SMTP delivery for the contact/feedback forms. Uncomment to set:
+      # - key: SMTP_HOST
+      #   sync: false
+      # - key: SMTP_PORT
+      #   sync: false
+      # - key: SMTP_SECURE
+      #   sync: false        # "true" for TLS (465/587), "false" for plain
+      # - key: SMTP_USER
+      #   sync: false
+      # - key: SMTP_PASSWORD
+      #   sync: false
+      # - key: SMTP_FROM
+      #   sync: false        # e.g. no-reply@yourdomain.com
+      # - key: SMTP_TO
+      #   sync: false        # where contact messages are delivered
+    # Persistent disk — requires a PAID plan (e.g. starter, ~$7/month).
+    # disk:
+    #   name: portfolio-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

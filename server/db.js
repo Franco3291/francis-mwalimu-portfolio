@@ -10,7 +10,9 @@ const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..'); // project root
 const DATA_JS_PATH = path.join(ROOT, 'js', 'data.js');
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.PORTFOLIO_DATA_DIR
+  ? path.resolve(process.env.PORTFOLIO_DATA_DIR)
+  : path.join(__dirname, 'data');
 const DB_PATH = path.join(DATA_DIR, 'content.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP = 20; // number of automatic backups to retain
@@ -134,4 +136,4 @@ function exportDataJs(data) {
   return header + 'var PORTFOLIO_DATA = ' + JSON.stringify(data, null, 2) + ';\n';
 }
 
-module.exports = { ROOT, DB_PATH, DATA_JS_PATH, BACKUP_DIR, BACKUP_KEEP, extractFromDataJs, readDatabase, writeDatabase, initDatabase, exportDataJs, createBackup, listBackups, readBackup };
+module.exports = { ROOT, DATA_DIR, DB_PATH, DATA_JS_PATH, BACKUP_DIR, BACKUP_KEEP, extractFromDataJs, readDatabase, writeDatabase, initDatabase, exportDataJs, createBackup, listBackups, readBackup };

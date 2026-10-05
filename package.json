@@ -9,6 +9,7 @@
     "init-data": "node server/scripts/init-data.js",
     "set-password": "node server/scripts/set-password.js",
     "change-password": "node server/scripts/set-password.js",
+    "set-domain": "node server/scripts/set-domain.js",
     "feature-test": "node server/scripts/feature-test.js",
     "smoke-test": "node server/scripts/smoke-test.js",
     "test": "node server/scripts/test-all.js"

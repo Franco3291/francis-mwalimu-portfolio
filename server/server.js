@@ -60,6 +60,14 @@ function applySecurityHeaders(res) {
   for (const k in SECURITY_HEADERS) res.setHeader(k, SECURITY_HEADERS[k]);
 }
 
+// Real client IP behind a reverse proxy (Render forwards the client address in
+// X-Forwarded-For). Used for login lockout and message rate limiting.
+function clientIp(req) {
+  const xff = String(req.headers['x-forwarded-for'] || '');
+  const first = xff.split(',')[0].trim();
+  return first || (req.socket.remoteAddress || 'unknown');
+}
+
 /* ==================== URL helpers ==================== */
 // Absolute base URL derived from the request (proxy friendly). Used by the
 // dynamic sitemap and Atom feed.
@@ -182,7 +190,9 @@ function rateLimit(key, max, windowMs) {
   return { ok: true, remaining: max - e.count };
 }
 
-const UPLOAD_ROOT = path.join(STATIC_ROOT, 'assets', 'uploads');
+const UPLOAD_ROOT = process.env.PORTFOLIO_UPLOAD_DIR
+  ? path.resolve(process.env.PORTFOLIO_UPLOAD_DIR)
+  : path.join(STATIC_ROOT, 'assets', 'uploads');
 const FOLDER_RULES = {
   profile: { kinds: ['image'], max: 8 * 1024 * 1024 },
   certificates: { kinds: ['image'], max: 8 * 1024 * 1024 },
@@ -321,17 +331,7 @@ function etagFor(stat) {
   return '"' + stat.size.toString(16) + '-' + stat.mtimeMs.toString(16) + '"';
 }
 
-function serveStatic(req, res, pathname) {
-  const target = pathname === '/' ? '/index.html' : pathname;
-  let fullPath;
-  try {
-    fullPath = path.normalize(path.join(STATIC_ROOT, decodeURIComponent(target)));
-  } catch (e) {
-    return sendError(res, 400, 'bad request');
-  }
-  if (fullPath !== STATIC_ROOT && !fullPath.startsWith(STATIC_ROOT + path.sep)) {
-    return sendError(res, 403, 'forbidden');
-  }
+function serveFile(req, res, fullPath) {
   fs.stat(fullPath, (err, stat) => {
     if (err || !stat.isFile()) return sendError(res, 404, 'not found');
     const etag = etagFor(stat);
@@ -366,6 +366,20 @@ function serveStatic(req, res, pathname) {
     res.writeHead(200, headers);
     stream.pipe(res);
   });
+}
+
+function serveStatic(req, res, pathname) {
+  const target = pathname === '/' ? '/index.html' : pathname;
+  let fullPath;
+  try {
+    fullPath = path.normalize(path.join(STATIC_ROOT, decodeURIComponent(target)));
+  } catch (e) {
+    return sendError(res, 400, 'bad request');
+  }
+  if (fullPath !== STATIC_ROOT && !fullPath.startsWith(STATIC_ROOT + path.sep)) {
+    return sendError(res, 403, 'forbidden');
+  }
+  return serveFile(req, res, fullPath);
 }
 
 /* ==================== Dynamic sitemap & Atom feed ==================== */
@@ -509,15 +523,21 @@ function collectLocalUrls(value, key, section, out, seen) {
   Object.keys(value).forEach(k => collectLocalUrls(value[k], k, section, out, seen));
 }
 
-// True when the local path resolves to an existing file inside STATIC_ROOT.
+// True when the local path resolves to an existing file inside STATIC_ROOT (or
+// UPLOAD_ROOT for /assets/uploads/ URLs, which may be stored on a host disk).
 function fileExistsLocal(relPath) {
   let full;
   try {
-    full = path.normalize(path.join(STATIC_ROOT, decodeURIComponent(relPath.split('?')[0])));
+    const cleaned = relPath.split('?')[0];
+    full = /^\/assets\/uploads\//.test(cleaned)
+      ? safeResolveUpload(cleaned)
+      : path.normalize(path.join(STATIC_ROOT, decodeURIComponent(cleaned)));
   } catch (e) {
     return false;
   }
-  if (full !== STATIC_ROOT && !full.startsWith(STATIC_ROOT + path.sep)) return false;
+  if (!full) return false;
+  if (full !== STATIC_ROOT && !full.startsWith(STATIC_ROOT + path.sep) &&
+      full !== UPLOAD_ROOT && !full.startsWith(UPLOAD_ROOT + path.sep)) return false;
   try { return fs.existsSync(full) && fs.statSync(full).isFile(); } catch (e) { return false; }
 }
 
@@ -583,7 +603,7 @@ async function handleApi(req, res, url) {
 
   // Admin: login
   if (method === 'POST' && pathname === '/api/auth/login') {
-    const ip = req.socket.remoteAddress || 'unknown';
+    const ip = clientIp(req);
     if (isLockedOut(ip)) return sendError(res, 429, 'too many attempts, try again later');
     const body = await readJsonBody(req, 16 * 1024).catch(() => null);
     const username = body && body.username;
@@ -777,7 +797,7 @@ async function handleApi(req, res, url) {
 
 // Public: contact form endpoint (rate-limited + honeypot protected)
   if (method === 'POST' && pathname === '/api/contact') {
-    const ip = req.socket.remoteAddress || 'unknown';
+    const ip = clientIp(req);
     const rl = rateLimit('msg:' + ip, config.contactRateLimit, 60 * 60000);
     if (!rl.ok) return sendError(res, 429, 'too many messages from this address, try again later');
     const body = await readJsonBody(req, 32 * 1024).catch(() => null);
@@ -808,7 +828,7 @@ async function handleApi(req, res, url) {
 
   // Public: feedback form endpoint
   if (method === 'POST' && pathname === '/api/feedback') {
-    const ip = req.socket.remoteAddress || 'unknown';
+    const ip = clientIp(req);
     const rl = rateLimit('msg:' + ip, config.contactRateLimit, 60 * 60000);
     if (!rl.ok) return sendError(res, 429, 'too many messages from this address, try again later');
     const body = await readJsonBody(req, 32 * 1024).catch(() => null);
@@ -906,7 +926,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'GET' || req.method === 'HEAD') return serveStatic(req, res, pathname);
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    // Files under /assets/uploads/ may live outside STATIC_ROOT — e.g. on a
+    // host persistent disk configured via PORTFOLIO_UPLOAD_DIR.
+    if (pathname.startsWith('/assets/uploads/')) {
+      const full = safeResolveUpload(pathname);
+      if (!full || full === UPLOAD_ROOT) return sendError(res, 403, 'forbidden');
+      return serveFile(req, res, full);
+    }
+    return serveStatic(req, res, pathname);
+  }
   sendError(res, 405, 'method not allowed');
 });
 

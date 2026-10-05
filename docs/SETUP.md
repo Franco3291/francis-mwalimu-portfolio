@@ -56,7 +56,24 @@ Without a configured endpoint, the forms open the configured email client using 
 
 **Static hosting (admin panel not live):** deploy to GitHub Pages, Netlify, Cloudflare Pages, Vercel static hosting or any HTTPS web server. To publish admin edits, export `data.js` from the admin panel and commit the downloaded file.
 
-**Node.js host (admin panel live):** deploy `server/server.js` to any Node-capable platform (Render, Railway, Fly.io, Glitch, VPS) with `npm start`. The server serves both the site and the API, so edits appear instantly. Set `secureCookies: true` in `server/config.json` when serving over HTTPS.
+**Node.js host (admin panel live):** deploy `server/server.js` to any Node-capable platform (Render, Railway, Fly.io, Glitch, VPS) with `npm start`. The server serves both the site and the API, so edits appear instantly. Configuration comes from `server/config.json` **and/or environment variables** — env values take precedence, so a fresh host needs no config file.
+
+### Deploying to Render (blueprint)
+
+The repo includes `render.yaml`, so deploy is: **Dashboard → New → Blueprint → select the GitHub repo**. Provide the two secrets Render prompts for — `ADMIN_USERNAME` and `ADMIN_PASSWORD` (scrypt-hashed once on first boot). The health check is `GET /api/health`.
+
+Environment variables understood by the server:
+
+| Variable | Effect |
+| -------- | ------ |
+| `PORT`, `HOST` | Listen address (Render sets `PORT` itself) |
+| `ADMIN_USERNAME`, `ADMIN_PASSWORD` | Creates the admin account on first boot when no `config.json` credentials exist |
+| `SECURE_COOKIES` | `"true"` when the platform terminates HTTPS |
+| `PORTFOLIO_DATA_DIR` | Directory for `content.json` + backups (default `server/data`) |
+| `PORTFOLIO_UPLOAD_DIR` | Directory for admin uploads (default `assets/uploads`) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TO` | SMTP delivery config for the contact/feedback forms |
+
+**Ephemeral vs persistent storage:** on the Render **free** plan the filesystem is ephemeral — admin edits/uploads are lost on restart (the content DB is re-seeded from `js/data.js` at boot). That is ideal for a first launch. To keep admin changes, enable a **paid** plan and a disk (uncomment the `disk:` block in `render.yaml`; mount at `/var/data` = `PORTFOLIO_DATA_DIR: /var/data/db`, `PORTFOLIO_UPLOAD_DIR: /var/data/uploads`).
 
 In both cases: serve `index.html` at the root, preserve query strings for `project.html?id=...` and `article.html?id=...`, and enable HTTPS.
 

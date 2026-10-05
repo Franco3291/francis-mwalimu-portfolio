@@ -13,13 +13,13 @@ var PORTFOLIO_DATA = {
     title: "IT Professional | Networking & Cybersecurity Enthusiast | Software Developer",
     shortTitle: "IT Professional",
     tagline: "Building secure, reliable and innovative technology solutions",
-    email: "your.email@example.com", // TODO: Replace with real email
-    phone: "+254 700 000 000", // TODO: Replace with real phone/WhatsApp
+    email: "Fj880458@gmail.com",
+    phone: "+254 758857120",
     location: "Nairobi, Kenya",
-    github: "https://github.com/Franco3291", // TODO: Replace with real GitHub URL
-    linkedin: "https://www.linkedin.com/in/your-profile", // TODO: Replace with real LinkedIn URL
+    github: "https://github.com/Franco3291",
+    linkedin: "https://www.linkedin.com/in/francis-mwalimu-17a228315/",
     twitter: "https://twitter.com/your-handle", // TODO: Replace or remove
-    whatsapp: "https://wa.me/254700000000", // TODO: Replace with real WhatsApp number
+    whatsapp: "https://wa.me/254758857120",
     profileImage: "assets/images/profile.jpg", // TODO: Add real profile photo
     cvUrl: "assets/docs/Francis_Mwalimu_CV.pdf", // TODO: Add real CV file
     contactFormEndpoint: "", // TODO: Set a HTTPS form endpoint before deployment
@@ -57,10 +57,10 @@ var PORTFOLIO_DATA = {
   /* ==================== SOCIAL LINKS ==================== */
   social: [
     { name: "GitHub", url: "https://github.com/Franco3291", icon: "github", label: "GitHub Profile" },
-    { name: "LinkedIn", url: "https://www.linkedin.com/in/your-profile", icon: "linkedin", label: "LinkedIn Profile" },
+    { name: "LinkedIn", url: "https://www.linkedin.com/in/francis-mwalimu-17a228315/", icon: "linkedin", label: "LinkedIn Profile" },
     { name: "Twitter/X", url: "https://twitter.com/your-handle", icon: "twitter", label: "Twitter Profile" },
-    { name: "WhatsApp", url: "https://wa.me/254700000000", icon: "whatsapp", label: "WhatsApp Contact" },
-    { name: "Email", url: "mailto:your.email@example.com", icon: "email", label: "Email Me" }
+    { name: "WhatsApp", url: "https://wa.me/254758857120", icon: "whatsapp", label: "WhatsApp Contact" },
+    { name: "Email", url: "mailto:Fj880458@gmail.com", icon: "email", label: "Email Me" }
   ],
 
   /* ==================== SKILLS ==================== */

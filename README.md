@@ -263,7 +263,39 @@ To publish admin edits on a static host, use **Export data.js** in the panel and
 
 ### Option B — Node.js host (full admin panel)
 
-For the live admin panel, deploy `server/server.js` to a Node‑capable platform such as **Render**, **Railway**, **Fly.io**, **Glitch**, or any VPS (`npm start`). The server serves both the site and the API, so admin edits appear instantly. Set `secureCookies: true` in `server/config.json` when serving over HTTPS.
+For the live admin panel, deploy `server/server.js` to a Node‑capable platform such as **Render**, **Railway**, **Fly.io**, **Glitch**, or any VPS (`npm start`). The server serves both the site and the API, so admin edits appear instantly.
+
+#### Recommended: Render (one‑click via blueprint)
+
+The repo ships with `render.yaml`, so a Render deploy boots with everything pre‑configured:
+
+1. Push this repo to GitHub.
+2. Render Dashboard → **New** → **Blueprint** → connect the GitHub repository.
+3. Render reads `render.yaml`, then asks for the two `sync: false` secrets — enter the admin login for the live site:
+   - `ADMIN_USERNAME` — e.g. `francis`
+   - `ADMIN_PASSWORD` — a strong password (8+ chars). It is hashed (scrypt) once on first boot and **never stored in plaintext or in the repo.**
+4. Click **Apply**; Render creates the web service and health‑checks `GET /api/health`.
+5. Open the service's `https://….onrender.com` URL — admin panel at `/admin.html`, then run:
+
+```bash
+# Once you have the live URL, replace the placeholder example.com domain:
+npm run set-domain -- https://name.onrender.com
+git add -A && git commit -m "Set live domain" && git push
+```
+
+**Persistence note:** the free plan has an **ephemeral filesystem** — admin edits and uploaded files are lost on restart/redeploy (the content DB is re‑seeded from `js/data.js` at boot). To keep admin changes and uploads across restarts, switch the service to a paid plan (e.g. `starter`) and uncomment the `disk:` block in `render.yaml` (disk mounts at `/var/data`, and `PORTFOLIO_DATA_DIR`/`PORTFOLIO_UPLOAD_DIR` point into it). Alternatively, re‑run `init-data` after redeploys — see the checklist below.
+
+**Configuration via environment variables** (no `server/config.json` needed on the host):
+
+| Variable | Purpose |
+| -------- | ------- |
+| `PORT` / `HOST` | Bind address on the platform (Render sets these automatically) |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | Seed the admin account on first boot |
+| `SECURE_COOKIES` | `"true"` when HTTPS is terminated at the platform proxy |
+| `PORTFOLIO_DATA_DIR` / `PORTFOLIO_UPLOAD_DIR` | Where content DB + uploads live (persistent disk path) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`, `SMTP_TO` | Email delivery for the contact/feedback forms |
+
+Any of these can also be stored normally in `server/config.json` — env values take precedence when both are set.
 
 ### Requirements (both options)
 
@@ -303,7 +335,8 @@ For the live admin panel, deploy `server/server.js` to a Node‑capable platform
 
 ## ✅ Before Deployment Checklist
 
-- [ ] Replace placeholder contact fields (email, phone, WhatsApp), social URLs, profile photo, and CV path in `js/data.js`.
+- [x] Replace placeholder contact fields (email, phone, WhatsApp) and social URLs in `js/data.js`, `contact.html`, and `index.html`.
+- [ ] Replace the profile photo and CV path in `js/data.js` (add files under `assets/images/` and `assets/docs/`).
 - [ ] Replace clearly marked placeholder education, experience, certification, testimonial, and project content.
 - [ ] Add approved files under `assets/docs/` and images under `assets/images/`.
 - [ ] Replace `example.com` with your real HTTPS domain in page metadata, `robots.txt`, `sitemap.xml`, and live‑project data.
