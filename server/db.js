@@ -5,17 +5,71 @@
    bundled js/data.js and is then managed through the admin panel API.
    ========================================================================== */
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const vm = require('vm');
 
 const ROOT = path.join(__dirname, '..'); // project root
 const DATA_JS_PATH = path.join(ROOT, 'js', 'data.js');
-const DATA_DIR = process.env.PORTFOLIO_DATA_DIR
-  ? path.resolve(process.env.PORTFOLIO_DATA_DIR)
-  : path.join(__dirname, 'data');
+
+// Where the content DB lives: PORTFOLIO_DATA_DIR when set, else server/data.
+// Some hosts (e.g. Render's free plan) leave the configured path unwritable —
+// /var/data has no disk mounted, so mkdir fails with EACCES. Instead of letting
+// every request fail, we fall back to a temp directory and finally to an
+// in-memory store so the site keeps serving the bundled content.
+const BUNDLED_DATA_DIR = path.join(__dirname, 'data');
+const TEMP_DATA_DIR = path.join(os.tmpdir(), 'portfolio-db');
+
+// Create dir (recursively) and confirm it is actually writable.
+function isDirWritable(dir) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, '.write-probe-' + process.pid);
+    fs.writeFileSync(probe, 'ok');
+    fs.unlinkSync(probe);
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+// Pick the first writable candidate. When a data dir is explicitly configured
+// (a persistent disk, say) and it is not writable, prefer the temp dir before
+// the bundled one; without a configured dir keep the bundled default so local
+// development is unchanged.
+function resolveDataDir() {
+  const configured = process.env.PORTFOLIO_DATA_DIR
+    ? path.resolve(process.env.PORTFOLIO_DATA_DIR)
+    : null;
+  const candidates = configured
+    ? [configured, TEMP_DATA_DIR, BUNDLED_DATA_DIR]
+    : [BUNDLED_DATA_DIR, TEMP_DATA_DIR];
+  for (const dir of candidates) {
+    if (isDirWritable(dir)) return dir;
+  }
+  return null; // nothing writable -> keep everything in memory
+}
+
+const RESOLVED_DATA_DIR = resolveDataDir();
+const IN_MEMORY = RESOLVED_DATA_DIR === null; // no writable dir available
+// When IN_MEMORY this path is a label only (never written to).
+const DATA_DIR = RESOLVED_DATA_DIR || BUNDLED_DATA_DIR;
 const DB_PATH = path.join(DATA_DIR, 'content.json');
 const BACKUP_DIR = path.join(DATA_DIR, 'backups');
 const BACKUP_KEEP = 20; // number of automatic backups to retain
+let memoryStore = null; // live content when IN_MEMORY is true
+
+if (IN_MEMORY) {
+  console.warn('[db] No writable data directory found; using an IN-MEMORY store (changes are not persisted).');
+} else {
+  console.log('[db] Data directory: ' + DATA_DIR);
+  const configured = process.env.PORTFOLIO_DATA_DIR
+    ? path.resolve(process.env.PORTFOLIO_DATA_DIR)
+    : null;
+  if (configured && configured !== DATA_DIR) {
+    console.warn('[db] Configured PORTFOLIO_DATA_DIR (' + configured + ') is not writable; using ' + DATA_DIR + ' instead.');
+  }
+}
 
 /* ==================== Automatic backups (with rotation) ==================== */
 
@@ -28,6 +82,7 @@ function backupStamp(d) {
 // Snapshot the given data to server/data/backups/backup-<timestamp>.json and
 // keep only the newest BACKUP_KEEP backups.
 function createBackup(data) {
+  if (IN_MEMORY) return 'memory'; // nothing to persist
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
   const name = 'backup-' + backupStamp(new Date()) + '.json';
   const tmp = path.join(BACKUP_DIR, name + '.tmp');
@@ -42,7 +97,7 @@ function createBackup(data) {
 }
 
 function listBackups() {
-  if (!fs.existsSync(BACKUP_DIR)) return [];
+  if (IN_MEMORY || !fs.existsSync(BACKUP_DIR)) return [];
   return fs.readdirSync(BACKUP_DIR)
     .filter(f => /^backup-.*\.json$/.test(f))
     .map(f => {
@@ -62,6 +117,7 @@ function listBackups() {
 // Read a stored backup by its file name. The name is validated so only files
 // in the backups directory are ever reachable (no path traversal).
 function readBackup(file) {
+  if (IN_MEMORY) throw new Error('backups are unavailable while running in-memory');
   if (typeof file !== 'string' || !/^backup-[A-Za-z0-9._-]+\.json$/.test(file)) {
     throw new Error('invalid backup file name');
   }
@@ -95,6 +151,10 @@ function extractFromDataJs() {
 }
 
 function readDatabase() {
+  if (IN_MEMORY) {
+    if (!memoryStore) memoryStore = extractFromDataJs();
+    return memoryStore;
+  }
   if (!fs.existsSync(DB_PATH)) {
     initDatabase({ force: false });
   }
@@ -107,6 +167,10 @@ function readDatabase() {
 }
 
 function writeDatabase(data) {
+  if (IN_MEMORY) {
+    memoryStore = data; // keep in memory only; nothing to write to disk
+    return;
+  }
   fs.mkdirSync(DATA_DIR, { recursive: true });
   // Snapshot the incoming state before it becomes the live database, then
   // rotate so only the newest BACKUP_KEEP backups are retained.
@@ -117,13 +181,18 @@ function writeDatabase(data) {
 }
 
 function initDatabase({ force = false } = {}) {
+  if (IN_MEMORY) {
+    memoryStore = extractFromDataJs();
+    console.log('[db] Seeded in-memory content from js/data.js (' + Object.keys(memoryStore).length + ' sections).');
+    return memoryStore;
+  }
   if (!force && fs.existsSync(DB_PATH)) {
     console.log('[db] content.json already exists; skipping init. Use --force to rebuild.');
     return readDatabase();
   }
   const data = extractFromDataJs();
   writeDatabase(data);
-  console.log('[db] Initialized server/data/content.json from js/data.js (' + Object.keys(data).length + ' sections).');
+  console.log('[db] Initialized content.json from js/data.js (' + Object.keys(data).length + ' sections).');
   return data;
 }
 
@@ -136,4 +205,4 @@ function exportDataJs(data) {
   return header + 'var PORTFOLIO_DATA = ' + JSON.stringify(data, null, 2) + ';\n';
 }
 
-module.exports = { ROOT, DATA_DIR, DB_PATH, DATA_JS_PATH, BACKUP_DIR, BACKUP_KEEP, extractFromDataJs, readDatabase, writeDatabase, initDatabase, exportDataJs, createBackup, listBackups, readBackup };
+module.exports = { ROOT, DATA_DIR, DB_PATH, DATA_JS_PATH, BACKUP_DIR, BACKUP_KEEP, IN_MEMORY, extractFromDataJs, readDatabase, writeDatabase, initDatabase, exportDataJs, createBackup, listBackups, readBackup };

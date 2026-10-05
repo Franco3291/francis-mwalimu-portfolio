@@ -25,6 +25,7 @@
    ========================================================================== */
 const http = require('http');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
@@ -190,9 +191,30 @@ function rateLimit(key, max, windowMs) {
   return { ok: true, remaining: max - e.count };
 }
 
-const UPLOAD_ROOT = process.env.PORTFOLIO_UPLOAD_DIR
-  ? path.resolve(process.env.PORTFOLIO_UPLOAD_DIR)
-  : path.join(STATIC_ROOT, 'assets', 'uploads');
+// Uploads live in PORTFOLIO_UPLOAD_DIR when set, else assets/uploads. Like the
+// content DB, the configured dir may be unwritable on ephemeral hosts (Render
+// free plan: /var/data has no disk). Resolve the first writable candidate —
+// configured -> temp dir -> bundled assets/uploads — so admin uploads never
+// crash the server just because a disk is missing.
+function resolveUploadRoot() {
+  const configured = process.env.PORTFOLIO_UPLOAD_DIR
+    ? path.resolve(process.env.PORTFOLIO_UPLOAD_DIR)
+    : null;
+  const temp = path.join(os.tmpdir(), 'portfolio-uploads');
+  const bundled = path.join(STATIC_ROOT, 'assets', 'uploads');
+  const candidates = configured ? [configured, temp, bundled] : [bundled, temp];
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    } catch (e) { /* try the next candidate */ }
+  }
+  return bundled; // last resort; read-only uploads just won't persist
+}
+const UPLOAD_ROOT = resolveUploadRoot();
+if (process.env.PORTFOLIO_UPLOAD_DIR && path.resolve(process.env.PORTFOLIO_UPLOAD_DIR) !== UPLOAD_ROOT) {
+  console.warn('[server] Configured PORTFOLIO_UPLOAD_DIR (' + path.resolve(process.env.PORTFOLIO_UPLOAD_DIR) + ') is not writable; using ' + UPLOAD_ROOT + ' instead.');
+}
 const FOLDER_RULES = {
   profile: { kinds: ['image'], max: 8 * 1024 * 1024 },
   certificates: { kinds: ['image'], max: 8 * 1024 * 1024 },

@@ -11,10 +11,15 @@
 # DATA PERSISTENCE (read before deploying)
 #   - plan: free  -> ephemeral filesystem. Admin edits & uploads are LOST on
 #     restart/redeploy; the content DB is re-seeded from js/data.js at boot.
-#     Perfect for trying it out; not for keeping admin changes.
+#     Perfect for trying it out; not for keeping admin changes. On the free
+#     plan there is NO disk mounted at /var/data (mkdir there fails with
+#     EACCES), so PORTFOLIO_DATA_DIR / PORTFOLIO_UPLOAD_DIR point at /tmp,
+#     which is always writable. The server also auto-falls-back if /tmp is
+#     ever unavailable, so the site never crashes from a missing disk.
 #   - To keep admin edits + uploads across restarts: set `plan: starter` (paid)
 #     and uncomment the `disk:` block below. Render mounts the disk at
-#     /var/data, where PORTFOLIO_DATA_DIR and PORTFOLIO_UPLOAD_DIR point.
+#     /var/data — then change PORTFOLIO_DATA_DIR to /var/data/db and
+#     PORTFOLIO_UPLOAD_DIR to /var/data/uploads.
 #
 # SMTP (contact & feedback forms): uncomment the SMTP_* env vars and supply
 # them at creation (secrets), or configure later under Admin -> Email settings.
@@ -34,9 +39,9 @@ services:
       - key: SECURE_COOKIES
         value: "true"
       - key: PORTFOLIO_DATA_DIR
-        value: /var/data/db
+        value: /tmp/db
       - key: PORTFOLIO_UPLOAD_DIR
-        value: /var/data/uploads
+        value: /tmp/uploads
       # Admin account — created automatically on first boot from these secrets.
       # Render asks for a value for each "sync: false" key during creation.
       - key: ADMIN_USERNAME
