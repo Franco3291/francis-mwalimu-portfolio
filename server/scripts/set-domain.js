@@ -1,37 +1,57 @@
 'use strict';
 /* ============================================================================
-   set-domain.js — replace the placeholder example.com domain with the real
-   live domain across the static site files (canonical URLs, Open Graph tags,
-   sitemap.xml and the live-project URL in js/data.js).
+   set-domain.js — replace the placeholder example.com domain (or a previously
+   deployed domain) with the new live domain across the static site files
+   (canonical URLs, Open Graph tags, sitemap.xml and the live-project URL in
+   js/data.js).
 
-   Usage:   node server/scripts/set-domain.js <base-url>
-   Example: node server/scripts/set-domain.js https://mwalimu-portfolio.onrender.com
+   Usage:   node server/scripts/set-domain.js <new-base-url> [old-base-url]
 
-   Replaces the placeholder host "francis-mwalimu-portfolio.example.com" in any
-   .html / .js / .xml / .txt / .json / .css / .md file under the repo (skipping
-   .git, node_modules, backups and uploads). It is idempotent and safe to re-run.
+   Example: node server/scripts/set-domain.js https://project.onrender.com
+
+   By default the placeholder host "francis-mwalimu-portfolio.example.com" is
+   replaced in any .html / .js / .xml / .txt / .json / .css / .md file under the
+   repo (skipping .git, node_modules, backups and uploads). The script never
+   edits its own source, so it stays a reusable one-shot tool and re-running
+   with the same URL is a no-op. To migrate from a previously deployed host,
+   pass it as the second argument:
+     node server/scripts/set-domain.js https://new.example.com https://old.onrender.com
    ========================================================================== */
 const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', '..');
-const PLACEHOLDER = 'francis-mwalimu-portfolio.example.com';
+const PLACEHOLDER_HOST = 'francis-mwalimu-portfolio.example.com';
+const SELF = path.relative(ROOT, __filename); // this file is never edited
 
-const arg = process.argv[2];
-if (!arg) {
-  console.error('Usage: node server/scripts/set-domain.js <base-url>');
-  console.error('Example: node server/scripts/set-domain.js https://mwalimu-portfolio.onrender.com');
+const newArg = process.argv[2];
+if (!newArg) {
+  console.error('Usage: node server/scripts/set-domain.js <new-base-url> [old-base-url]');
+  console.error('Example: node server/scripts/set-domain.js https://project.onrender.com');
   process.exit(1);
 }
-const base = String(arg).trim().replace(/\/+$/, '');
-if (!/^https?:\/\/[^/\s]+$/i.test(base)) {
-  console.error('Invalid base URL: "' + base + '" — use e.g. https://mwalimu-portfolio.onrender.com');
+const newBase = String(newArg).trim().replace(/\/+$/, '');
+if (!/^https?:\/\/[^/\s]+$/i.test(newBase)) {
+  console.error('Invalid base URL: "' + newBase + '" — use e.g. https://project.onrender.com');
   process.exit(1);
 }
-const host = base.replace(/^https?:\/\//i, '');
-if (!host.includes('.')) {
-  console.error('The host "' + host + '" does not look like a real domain.');
+const newHost = newBase.replace(/^https?:\/\//i, '');
+if (!newHost.includes('.')) {
+  console.error('The host "' + newHost + '" does not look like a real domain.');
   process.exit(1);
+}
+
+// Optional second argument migrates from a previously deployed host.
+// Without it the placeholder host is replaced.
+let oldHost = PLACEHOLDER_HOST;
+const oldArg = process.argv[3];
+if (oldArg) {
+  const old = String(oldArg).trim().replace(/\/+$/, '');
+  if (!/^https?:\/\/[^/\s]+$/i.test(old)) {
+    console.error('Invalid old base URL: "' + old + '"');
+    process.exit(1);
+  }
+  oldHost = old.replace(/^https?:\/\//i, '');
 }
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'backups', 'uploads']);
@@ -46,20 +66,24 @@ function walk(dir) {
       walk(full);
       continue;
     }
+    const rel = path.relative(ROOT, full);
+    if (rel === SELF) continue; // keep the tool itself a reusable template
     if (!ALLOWED_EXT.has(path.extname(entry.name).toLowerCase())) continue;
     const raw = fs.readFileSync(full, 'utf8');
-    if (!raw.includes(PLACEHOLDER)) continue;
-    fs.writeFileSync(full, raw.split(PLACEHOLDER).join(host), 'utf8');
-    changed.push(path.relative(ROOT, full));
+    if (!raw.includes(oldHost)) continue;
+    const next = raw.split(oldHost).join(newHost);
+    if (next === raw) continue; // no actual change -> truly idempotent
+    fs.writeFileSync(full, next, 'utf8');
+    changed.push(rel);
   }
 }
 
 walk(ROOT);
 
 if (!changed.length) {
-  console.log('No ' + PLACEHOLDER + ' references found — the domain is already set.');
+  console.log('No "' + oldHost + '" references found — the domain is already set.');
 } else {
-  console.log('Replaced the placeholder domain with: ' + base);
+  console.log('Replaced "' + oldHost + '" with: ' + newBase);
   console.log('Updated ' + changed.length + ' file(s):');
   changed.forEach(f => console.log('  ' + f));
   console.log('Remember to commit and push if you want the change deployed.');
